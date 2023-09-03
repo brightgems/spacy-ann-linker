@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 #
 # Adapted from https://github.com/allenai/scispacy/blob/master/scispacy/candidate_generation.py
-# for use with spaCy KnowledgeBase
+# for use with spaCy InMemoryLookupKB
 
 from pathlib import Path
 from timeit import default_timer as timer

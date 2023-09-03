@@ -8,7 +8,7 @@ import numpy as np
 import srsly
 from spacy import util
 from spacy.pipeline import Pipe
-from spacy.kb import KnowledgeBase
+from spacy.kb import InMemoryLookupKB
 from spacy.language import Language
 from spacy.tokens import Doc, Span
 from spacy_ann.candidate_generator import CandidateGenerator
@@ -171,10 +171,10 @@ class AnnLinker(Pipe):
 
         return doc
 
-    def set_kb(self, kb: KnowledgeBase):
-        """Set the KnowledgeBase
+    def set_kb(self, kb: InMemoryLookupKB):
+        """Set the InMemoryLookupKB
 
-        kb (KnowledgeBase): spaCy KnowledgeBase
+        kb (InMemoryLookupKB): spaCy InMemoryLookupKB
         """
         self.kb = kb
 
@@ -216,7 +216,7 @@ class AnnLinker(Pipe):
         """
         path = util.ensure_path(path)
 
-        kb = KnowledgeBase(self.nlp.vocab, 300)
+        kb = InMemoryLookupKB(self.nlp.vocab, 300)
         kb.from_disk(path / "kb")
         self.set_kb(kb)
 

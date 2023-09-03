@@ -9,14 +9,14 @@ import scipy
 import srsly
 from nmslib.dist import FloatIndex
 from sklearn.feature_extraction.text import TfidfVectorizer
-from spacy.kb import KnowledgeBase
+from spacy.kb import InMemoryLookupKB
 from spacy.util import ensure_path
 from spacy.vocab import Vocab
 from spacy_ann.types import AliasCandidate
 from wasabi import Printer
 
 
-class AnnKnowledgeBase(KnowledgeBase):
+class AnnKnowledgeBase(InMemoryLookupKB):
     def __init__(
         self,
         vocab: Vocab,

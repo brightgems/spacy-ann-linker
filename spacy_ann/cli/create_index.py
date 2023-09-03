@@ -6,7 +6,7 @@ from pathlib import Path
 import spacy
 import srsly
 import typer
-from spacy.kb import KnowledgeBase
+from spacy.kb import InMemoryLookupKB
 from spacy_ann.candidate_generator import CandidateGenerator
 from wasabi import Printer
 
@@ -25,7 +25,7 @@ def create_index(
 ):
 
     """Create an AnnLinker based on the Character N-Gram
-    TF-IDF vectors for aliases in a KnowledgeBase
+    TF-IDF vectors for aliases in a InMemoryLookupKB
 
     model (str): spaCy language model directory or name to load
     kb_dir (Path): path to the directory with kb entities.jsonl and aliases.jsonl files
@@ -56,7 +56,7 @@ def create_index(
 
     entities = list(srsly.read_jsonl(kb_dir / "entities.jsonl"))
     aliases = list(srsly.read_jsonl(kb_dir / "aliases.jsonl"))
-    kb = KnowledgeBase(vocab=nlp.vocab, entity_vector_length=INPUT_DIM)
+    kb = InMemoryLookupKB(vocab=nlp.vocab, entity_vector_length=INPUT_DIM)
 
     # set up the data
     entity_ids = []
