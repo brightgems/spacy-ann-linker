@@ -29,8 +29,8 @@ classifiers = [
 ]
 requires = [
     "nmslib >= 2.1.1, <2.2",
-    "pydantic == 1.7.4",
-    "scikit-learn == 0.23.1",
+    "pydantic == 1.10.13",
+    "scikit-learn >= 0.23.1",
     "scipy >= 1.5.1, <1.20.0",
     "spacy >= 3.5.0, <4.0.0",
     "typer >= 0.3.0",

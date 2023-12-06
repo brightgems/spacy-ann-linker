@@ -351,7 +351,7 @@ class CandidateGenerator:
                 self.vectorizer, p.with_suffix(".joblib")
             ),
             "tfidf_vectors_sparse": lambda p: scipy.sparse.save_npz(
-                p.with_suffix(".npz"), self.alias_tfidfs.astype(np.float16)
+                p.with_suffix(".npz"), self.alias_tfidfs
             ),
         }
 
