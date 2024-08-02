@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 from pathlib import Path
+import re
 from typing import Callable, List, Tuple, Dict
 import os.path as osp
 import itertools as it
@@ -14,7 +15,8 @@ from spacy.tokens import Doc, Span
 from spacy_ann.candidate_generator import CandidateGenerator
 from spacy_ann.types import KnowledgeBaseCandidate
 from spacy_ann.util import get_spans, get_span_text
-
+from .regex_matcher_pipe import RegexMatcherPipe
+    
 
 @Language.factory(
     "ann_linker",
@@ -65,7 +67,7 @@ class AnnLinker(Pipe):
         """
         return cls(nlp, **cfg)
 
-    def __init__(self, nlp, name="entity_linker", threshold=0.7, enable_context_similarity=False, disambiguate=True):
+    def __init__(self, nlp, name="entity_linker", threshold=0.7, enable_context_similarity=False, disambiguate=None):
         """Initialize the AnnLinker
 
         nlp (Language): spaCy Language object
@@ -81,12 +83,32 @@ class AnnLinker(Pipe):
         self.threshold = threshold
         self.enable_context_similarity = enable_context_similarity
         self.disambiguate = disambiguate
+        if disambiguate and self.ent_label_map:
+            self.nlp.add_pipe("regex_matcher", config={"regex": self.get_match_patterns()})
         if not self.nlp.vocab.lookups.has_table("mentions_to_alias_cand"):
             self.nlp.vocab.lookups.add_table("mentions_to_alias_cand")
 
+    def get_match_patterns(self):
+        """Get match patterns for regex matcher"""
+        def get_patterns(words):
+            words = sorted(words, key=len, reverse=True)
+            return "|".join([re.escape(w) for w in words])
+        
+        def is_disambiguate(candidates):
+            candidates = [c for c in candidates 
+                          if self.ent_label_map.get(c.entity_) == self.disambiguate]
+            return len(candidates) > 0
+        
+        all_aliases = self.kb.get_alias_strings()
+        word_items = [e for e in all_aliases if is_disambiguate(self.kb.get_alias_candidates(e))]
+        return {self.disambiguate: get_patterns(word_items)}
+        
+        
     def __call__(self, doc: Doc) -> Doc:
         """Annotate spaCy doc.ents with candidate info.
-        If disambiguate is True, use entity vectors and doc context
+        Parameters:
+          disambiguate(str): If exists, detect phrase use charcter start whith this label
+          enable_context_similarity(bool): If  is True, use entity vectors and doc context
         to pick the most likely Candidate
 
         doc (Doc): spaCy Doc
@@ -97,10 +119,16 @@ class AnnLinker(Pipe):
         self.require_kb()
         self.require_cg()
 
-        mentions = get_spans(doc)
-        mention_strings = [get_span_text(self.nlp, e) for e in mentions]
+        if self.disambiguate:
+            self.nlp.select_pipes(disable=["ann_linker", "ner"])
+            doc = self.nlp(doc.text)
+            self.nlp.select_pipes(enable=["ann_linker", "ner"])
+            mentions = doc.ents
+            mention_strings = [ent.text for e in mentions]
+        else:
+            mentions = get_spans(doc)
+            mention_strings = [get_span_text(self.nlp, e) for e in mentions]
         batch_candidates = self.cg(mention_strings)
-
         for ent, alias_candidates in zip(mentions, batch_candidates):
             alias_candidates = [
                 ac for ac in alias_candidates if ac.similarity > self.threshold
@@ -116,49 +144,52 @@ class AnnLinker(Pipe):
                 )
                 mentions_table.set(ent.text, alias_candidates[0].alias)
 
+                # return all kb entities of each candidate
+                alias_kb_lst = [
+                    self.kb.get_alias_candidates(ac.alias) for ac in alias_candidates
+                ]
+                # flatten to list of candidates
+                kba_candidates = list(it.chain(*alias_kb_lst))
+                kba_alias_idx = list(
+                    it.chain(*[[i] * len(items) for i, items in enumerate(alias_kb_lst)]))
+                candicate_similarity = [
+                    ac.similarity for ac in alias_candidates
+                ]
+                if self.enable_context_similarity and ent.has_vector:
+                    # create candidate matrix
+                    entity_encodings = np.asarray(
+                        [c.entity_vector for c in kba_candidates]
+                    )
+                    doc_vector = doc.vector.T.get() if str(type(doc.vector)).count('cupy') else doc.vector.T
+                    candidate_norm = np.linalg.norm(
+                        entity_encodings, axis=1)
+                    sims = np.dot(entity_encodings, doc_vector) / (
+                        (candidate_norm * doc.vector_norm) + 1e-8
+                    )
+                else:
+                    sims = np.zeros(len(kba_candidates))
+                kb_candidates = []
+                for cand, alias_idx, csim in zip(kba_candidates, kba_alias_idx, sims):
+                    asim = candicate_similarity[alias_idx]
+                    kb_candidates.append(
+                        KnowledgeBaseCandidate(
+                            entity=cand.entity_, label=self.ent_label_map.get(
+                                cand.entity_, ''),
+                            similarity=csim if self.enable_context_similarity and csim > 0 else asim,
+                            context_similarity=csim,
+                            alias_similarity=asim
+                        )
+                    )
+                
                 if self.disambiguate:
-                    # return all kb entities of each candidate
-                    alias_kb_lst = [
-                        self.kb.get_alias_candidates(ac.alias) for ac in alias_candidates
-                    ]
-                    # flatten to list of candidates
-                    kba_candidates = list(it.chain(*alias_kb_lst))
-                    kba_alias_idx = list(
-                        it.chain(*[[i] * len(items) for i, items in enumerate(alias_kb_lst)]))
-                    candicate_similarity = [
-                        ac.similarity for ac in alias_candidates
-                    ]
-                    if self.enable_context_similarity and ent.has_vector:
-                        # create candidate matrix
-                        entity_encodings = np.asarray(
-                            [c.entity_vector for c in kba_candidates]
-                        )
-                        doc_vector = doc.vector.T.get() if str(type(doc.vector)).count('cupy') else doc.vector.T
-                        candidate_norm = np.linalg.norm(
-                            entity_encodings, axis=1)
-                        sims = np.dot(entity_encodings, doc_vector) / (
-                            (candidate_norm * doc.vector_norm) + 1e-8
-                        )
-                    else:
-                        sims = np.zeros(len(kba_candidates))
-
-                    kb_candidates = []
-                    for cand, alias_idx, csim in zip(kba_candidates, kba_alias_idx, sims):
-                        asim = candicate_similarity[alias_idx]
-                        kb_candidates.append(
-                            KnowledgeBaseCandidate(
-                                entity=cand.entity_, label=self.ent_label_map.get(
-                                    cand.entity_, ''),
-                                similarity=csim if self.enable_context_similarity and csim > 0 else asim,
-                                context_similarity=csim,
-                                alias_similarity=asim
-                            )
-                        )
+                    kb_candidates = [ent for ent in kb_candidates if ent.label.startswith(self.disambiguate)]
+                if kb_candidates:
                     # dedup by entity, keep max item for each entity
                     kb_candidates = sorted(kb_candidates, key=lambda x: (
                         x.label, x.similarity), reverse=True)
                     kb_candidates = [list(v)[0] for k, v in it.groupby(
                         kb_candidates, key=lambda x: x.entity)]
+                    
                     # sort by similarity
                     kb_candidates = sorted(
                         kb_candidates, key=lambda x: x.similarity, reverse=True)
@@ -187,6 +218,8 @@ class AnnLinker(Pipe):
 
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
+        if self.ent_label_map and not self.nlp.has_pipe("regex_matcher"):
+            self.nlp.add_pipe("regex_matcher", config={"regex": self.get_match_patterns()})
 
     def require_kb(self):
         """Raise an error if the kb is not set.
