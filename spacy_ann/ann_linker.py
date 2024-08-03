@@ -24,7 +24,7 @@ from .regex_matcher_pipe import RegexMatcherPipe
     default_config={
         'threshold': 0.7,
         'enable_context_similarity': False,
-        'disambiguate': None
+        'disambiguate': ""
     },
     default_score_weights={
         "ents_f": 1.0,
