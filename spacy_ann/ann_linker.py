@@ -23,7 +23,6 @@ from .regex_matcher_pipe import RegexMatcherPipe
     assigns=["span._.kb_alias"],
     default_config={
         'threshold': 0.7,
-        'no_description_threshold': 0.5,
         'enable_context_similarity': False,
         'disambiguate': None
     },
@@ -38,7 +37,6 @@ def make_ann_linker(
     nlp: Language,
     name: str,
     threshold: float,
-    no_description_threshold: float,
     enable_context_similarity: bool,
     disambiguate: str
 ):
@@ -181,7 +179,7 @@ class AnnLinker(Pipe):
                         )
                     )
                 
-                if self.disambiguate:
+                if self.disambiguate and isinstance(self.disambiguate, str):
                     kb_candidates = [ent for ent in kb_candidates if ent.label.startswith(self.disambiguate)]
                 if kb_candidates:
                     # dedup by entity, keep max item for each entity
@@ -195,7 +193,7 @@ class AnnLinker(Pipe):
                         kb_candidates, key=lambda x: x.similarity, reverse=True)
                     ent._.kb_candidates = kb_candidates
 
-                    # TODO: Add thresholding here
+                    # select best candidate as entity
                     best_candidate = kb_candidates[0]
                     for t in ent:
                         t.ent_kb_id_ = best_candidate.entity
@@ -218,7 +216,9 @@ class AnnLinker(Pipe):
 
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
-        if self.ent_label_map and not self.nlp.has_pipe("regex_matcher"):
+        if self.ent_label_map and isinstance(self.ent_label_map, str):
+            if self.nlp.has_pipe("regex_matcher"):
+                self.nlp.remove_pipe("regex_matcher")
             self.nlp.add_pipe("regex_matcher", config={"regex": self.get_match_patterns()})
 
     def require_kb(self):
