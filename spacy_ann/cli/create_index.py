@@ -110,7 +110,8 @@ def create_index(
     ann_linker.set_kb(kb)
     ann_linker.set_cg(cg)
     ann_linker.set_entity_lables(ent_label_map)
-
+    if nlp.has_pipe("ner"):
+        nlp.disable_pipe("ner")
     nlp.meta["name"] = new_model_name
     nlp.to_disk(output_dir)
     nlp.from_disk(output_dir)
