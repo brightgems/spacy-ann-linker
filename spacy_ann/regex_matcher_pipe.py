@@ -57,10 +57,11 @@ class RegexMatcherPipe:
             for match in self.patterns[k].finditer(doc.text, concurrent=True):
                 # 英文使用subword匹配会产生歧义
                 is_ascii = all(ord(c) < 128 for c in match.group())
+                alignment_mode = 'strict' if is_ascii else self.alignment_mode
                 start_char, end_char = match.span()
-                span = doc.char_span(start_char, end_char, label=k, alignment_mode=self.alignment_mode)
+                span = doc.char_span(start_char, end_char, label=k, alignment_mode=alignment_mode)
                 # ensure span len is bigger than match length
-                if span and len(span.text) >= len(match.group()):
+                if span and match.group() and len(span.text) >= len(match.group()):
                     # translate to token position
                     start, end = span.start, span.end
                     span._.set('match_', match.group())
