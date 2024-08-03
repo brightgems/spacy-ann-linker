@@ -119,7 +119,7 @@ class AnnLinker(Pipe):
 
         if self.disambiguate:
             mentions = doc.ents
-            mention_strings = [ent.text for e in mentions]
+            mention_strings = [ent.text for ent in mentions]
         else:
             mentions = get_spans(doc)
             mention_strings = [get_span_text(self.nlp, e) for e in mentions]
