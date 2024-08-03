@@ -28,4 +28,5 @@ def test_ann_linker_with_discriminate(trained_linker):
     ann_linker.set_entity_lables({"a1": "ai"})
     doc = nlp("NLP is a highly researched subset of machine learning.")
     ents = list(doc.ents)
+    assert len(ents) == 1
     assert ents[0].kb_id_ == "a1"

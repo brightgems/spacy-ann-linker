@@ -44,12 +44,10 @@ def get_span_text(nlp, span):
             # replace GPE
             if len(text) > 3:
                 doc = nlp.get_pipe('ner')(nlp.make_doc(span.text))
-                loc_ents = [ent for ent in doc.ents if ent.label_ in ('GPE')]
+                loc_ents = [ent for ent in doc.ents if ent.label_ in ('ORG', 'GPE')]
                 for ent in loc_ents:
                     text = text.replace(ent.text, '')
         elif span.label_ == 'brand' and '/' in text:
             text = text.split('/')[0]
     text = normalize_text(text)
     return text.strip() or span.text
-
-
