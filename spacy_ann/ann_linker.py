@@ -23,7 +23,6 @@ from .regex_matcher_pipe import RegexMatcherPipe
     assigns=["span._.kb_alias"],
     default_config={
         'threshold': 0.7,
-        'no_description_threshold': 0.5,
         'enable_context_similarity': False,
         'disambiguate': ""
     },
@@ -38,7 +37,6 @@ def make_ann_linker(
     nlp: Language,
     name: str,
     threshold: float,
-    no_description_threshold: float,
     enable_context_similarity: bool,
     disambiguate: str
 ):
