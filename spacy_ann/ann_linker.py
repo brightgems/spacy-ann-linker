@@ -82,7 +82,7 @@ class AnnLinker(Pipe):
         self.enable_context_similarity = enable_context_similarity
         self.disambiguate = disambiguate
         if disambiguate and self.ent_label_map:
-            self.nlp.add_pipe("regex_matcher", config={"regex": self.get_match_patterns()})
+            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()})
         if not self.nlp.vocab.lookups.has_table("mentions_to_alias_cand"):
             self.nlp.vocab.lookups.add_table("mentions_to_alias_cand")
 
@@ -217,9 +217,9 @@ class AnnLinker(Pipe):
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
         if self.ent_label_map and isinstance(self.ent_label_map, str):
-            if self.nlp.has_pipe("regex_matcher"):
-                self.nlp.remove_pipe("regex_matcher")
-            self.nlp.add_pipe("regex_matcher", config={"regex": self.get_match_patterns()})
+            if self.nlp.has_pipe("ann_regex_matcher"):
+                self.nlp.remove_pipe("ann_regex_matcher")
+            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()})
 
     def require_kb(self):
         """Raise an error if the kb is not set.
