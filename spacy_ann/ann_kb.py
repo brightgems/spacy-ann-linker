@@ -317,8 +317,7 @@ class AnnKnowledgeBase(InMemoryLookupKB):
         aliases = srsly.read_json(aliases_path)
         short_aliases = set(srsly.read_json(short_aliases_path))
         tfidf_vectorizer = joblib.load(tfidf_vectorizer_path)
-        alias_tfidfs = scipy.sparse.load_npz(
-            tfidf_vectors_path).astype(np.float32)
+        alias_tfidfs = scipy.sparse.load_npz(tfidf_vectors_path)
         ann_index = nmslib.init(
             method="hnsw",
             space="cosinesimil_sparse",

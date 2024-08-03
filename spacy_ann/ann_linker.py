@@ -23,6 +23,7 @@ from .regex_matcher_pipe import RegexMatcherPipe
     assigns=["span._.kb_alias"],
     default_config={
         'threshold': 0.7,
+        'no_description_threshold': 0.5,
         'enable_context_similarity': False,
         'disambiguate': ""
     },
@@ -37,6 +38,7 @@ def make_ann_linker(
     nlp: Language,
     name: str,
     threshold: float,
+    no_description_threshold: float,
     enable_context_similarity: bool,
     disambiguate: str
 ):
@@ -82,7 +84,7 @@ class AnnLinker(Pipe):
         self.enable_context_similarity = enable_context_similarity
         self.disambiguate = disambiguate
         if disambiguate and self.ent_label_map:
-            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()})
+            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()}, before="ann_linker")
         if not self.nlp.vocab.lookups.has_table("mentions_to_alias_cand"):
             self.nlp.vocab.lookups.add_table("mentions_to_alias_cand")
 
@@ -118,9 +120,6 @@ class AnnLinker(Pipe):
         self.require_cg()
 
         if self.disambiguate:
-            self.nlp.select_pipes(disable=["ann_linker", "ner"])
-            doc = self.nlp(doc.text)
-            self.nlp.select_pipes(enable=["ann_linker", "ner"])
             mentions = doc.ents
             mention_strings = [ent.text for e in mentions]
         else:
@@ -216,10 +215,10 @@ class AnnLinker(Pipe):
 
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
-        if self.ent_label_map and isinstance(self.ent_label_map, str):
+        if self.ent_label_map and self.disambiguate and isinstance(self.disambiguate, str):
             if self.nlp.has_pipe("ann_regex_matcher"):
                 self.nlp.remove_pipe("ann_regex_matcher")
-            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()})
+            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()}, before="ann_linker")
 
     def require_kb(self):
         """Raise an error if the kb is not set.
