@@ -25,7 +25,7 @@ from .regex_matcher_pipe import RegexMatcherPipe
         'threshold': 0.7,
         'no_description_threshold': 0.5,
         'enable_context_similarity': False,
-        'disambiguate': True
+        'disambiguate': None
     },
     default_score_weights={
         "ents_f": 1.0,
@@ -40,7 +40,7 @@ def make_ann_linker(
     threshold: float,
     no_description_threshold: float,
     enable_context_similarity: bool,
-    disambiguate: bool
+    disambiguate: str
 ):
     return AnnLinker(
         nlp,
@@ -261,7 +261,8 @@ class AnnLinker(Pipe):
         self.threshold = cfg.get("threshold", 0.7)
         self.enable_context_similarity = cfg.get(
             "enable_context_similarity", False)
-        self.disambiguate = cfg.get("disambiguate", True)
+        if isinstance(cfg.get("disambiguate"), str):
+            self.disambiguate = cfg.get("disambiguate")
         if osp.exists(path / "el"):
             self.ent_label_map = srsly.read_json(path / "el")
         return self

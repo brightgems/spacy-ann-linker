@@ -293,8 +293,7 @@ class AnnKnowledgeBase(InMemoryLookupKB):
 
         self.ann_index.saveIndex(str(ann_index_path))
         joblib.dump(self.vectorizer, tfidf_vectorizer_path)
-        scipy.sparse.save_npz(tfidf_vectors_path,
-                              self.alias_tfidfs.astype(np.float16))
+        scipy.sparse.save_npz(tfidf_vectors_path, self.alias_tfidfs)
 
     def from_disk(self, path: Path):
         path = ensure_path(path)
