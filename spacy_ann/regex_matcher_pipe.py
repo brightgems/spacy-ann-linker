@@ -74,7 +74,7 @@ class RegexMatcherPipe:
                         and not(self.overwrite_ents and e._.match_ and e._.match_ in match.group())
                     ]
                     # overwrite if match len is more than old
-                    is_contained_by_existing = any([e for e in overlap_entities if
+                    is_contained_by_existing = any([e for e in overlap_entities if e._.match_ and
                                                     len(e._.match_) >= len(match.group())])
                     # if is_contained_by_existing:
                     #     print (match.group(), k, overlap_entities[0].text, overlap_entities[0]._.match_, overlap_entities[0].label_)
