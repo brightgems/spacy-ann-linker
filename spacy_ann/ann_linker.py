@@ -191,7 +191,7 @@ class AnnLinker(Pipe):
                     ent._.kb_candidates = kb_candidates
 
                     # select best candidate as entity
-                    exact_match = [c for c in kb_candidates if c.label==ner_label and c.similarity==1]
+                    exact_match = [c for c in kb_candidates if c.label==ent.label_ and c.similarity==1]
                     if exact_match:
                         best_candidate = exact_match[0]
                     else:
