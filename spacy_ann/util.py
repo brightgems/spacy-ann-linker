@@ -1,9 +1,11 @@
 import re
-from typing import Callable, List, Tuple
-import spacy
+from typing import Dict, List, Tuple, Optional
 from spacy.tokens import Doc, Span
-from spacy_ann.consts import stopwords
-import string
+from .consts import stopwords
+from .types import AliasCandidate
+from dataclasses import dataclass
+from collections import Counter
+import heapq
 
 
 def normalize_text(text):
@@ -24,7 +26,7 @@ def get_spans(doc: Doc) -> List[Span]:
     return list(doc.ents) + link_spans
 
 
-def get_span_text(nlp, span):
+def get_span_text(span):
     """ transform span text by delete redundency words
 
     Args:
@@ -41,13 +43,50 @@ def get_span_text(nlp, span):
         if span.label_ in ('ingredient', 'sensorial', 'flavor', 'fragrance'):
             exc_words = stopwords
             text = re.sub('|'.join(exc_words), '', text)
-            # replace GPE
-            if len(text) > 3:
-                doc = nlp.get_pipe('ner')(nlp.make_doc(span.text))
-                loc_ents = [ent for ent in doc.ents if ent.label_ in ('ORG', 'GPE')]
-                for ent in loc_ents:
-                    text = text.replace(ent.text, '')
         elif span.label_ == 'brand' and '/' in text:
             text = text.split('/')[0]
     text = normalize_text(text)
     return text.strip() or span.text
+
+
+@dataclass
+class CacheItem:
+    candidates: List[AliasCandidate]
+    frequency: int = 1
+    last_access: float = 0.0
+
+class FrequencyCache:
+    def __init__(self, max_size: int = 10000):
+        self.max_size = max_size
+        self._cache: Dict[str, CacheItem] = {}
+        self._access_count = Counter()
+        
+    def get(self, key: str) -> Optional[List[AliasCandidate]]:
+        """获取缓存项，并更新访问频率"""
+        if key in self._cache:
+            self._cache[key].frequency += 1
+            return self._cache[key].candidates
+        return None
+
+    def add(self, key: str, value: List[AliasCandidate]):
+        """添加新的缓存项"""
+        if len(self._cache) >= self.max_size:
+            self._remove_least_frequent()
+        self._cache[key] = CacheItem(candidates=value)
+
+    def _remove_least_frequent(self):
+        """移除访问频率最低的项"""
+        if not self._cache:
+            return
+        
+        # 找到频率最低的项
+        min_freq_item = min(self._cache.items(), key=lambda x: x[1].frequency)
+        self._cache.pop(min_freq_item[0])
+
+    def get_most_frequent(self, n: int = 10) -> List[Tuple[str, int]]:
+        """获取访问频率最高的n个项"""
+        return heapq.nlargest(
+            n, 
+            [(k, v.frequency) for k, v in self._cache.items()],
+            key=lambda x: x[1]
+        )

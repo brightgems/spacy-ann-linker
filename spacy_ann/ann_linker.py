@@ -124,10 +124,19 @@ class AnnLinker(Pipe):
             mentions = get_spans(doc)
             mention_strings = [get_span_text(self.nlp, e) for e in mentions]
         batch_candidates = self.cg(mention_strings)
+        
         for ent, alias_candidates in zip(mentions, batch_candidates):
             alias_candidates = [
                 ac for ac in alias_candidates if ac.similarity > self.threshold
             ]
+            # match noun chunks with 100% similarity
+            if len(alias_candidates) == 0 and len(ent.text) > 4 and ent.label_ in ['ingredient', 'fragrance']:
+                noun_chunks = [w.text for w in self.nlp(ent.text) if w.pos_ in ['NOUN', 'PROPN'] and len(w.text)>=2]
+                if len(noun_chunks) > 0:
+                    batch_candidates = self.cg(noun_chunks)
+                    alias_candidates = [
+                        ac for ac in batch_candidates if ac.alias in noun_chunks
+                    ]
 
             ent._.alias_candidates = alias_candidates
 

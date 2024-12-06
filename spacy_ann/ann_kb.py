@@ -238,7 +238,7 @@ class AnnKnowledgeBase(InMemoryLookupKB):
             if distances is None:
                 distances = []
 
-            alias_candidates = []
+            alias_candidates: List[AliasCandidate] = []
             for neighbor_index, distance in zip(neighbors, distances):
                 alias = self.aliases[neighbor_index]
                 similarity = 1.0 - distance
@@ -293,7 +293,11 @@ class AnnKnowledgeBase(InMemoryLookupKB):
 
         self.ann_index.saveIndex(str(ann_index_path))
         joblib.dump(self.vectorizer, tfidf_vectorizer_path)
-        scipy.sparse.save_npz(tfidf_vectors_path, self.alias_tfidfs)
+        # 先转换为密集矩阵，再转回稀疏矩阵
+        dense_matrix = self.alias_tfidfs.toarray()
+        float16_dense = dense_matrix.astype(np.float16)
+        float16_sparse = scipy.sparse.csr_matrix(float16_dense)
+        scipy.sparse.save_npz(tfidf_vectors_path, float16_sparse)
 
     def from_disk(self, path: Path):
         path = ensure_path(path)

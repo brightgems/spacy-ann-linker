@@ -6,8 +6,7 @@
 
 from pathlib import Path
 from timeit import default_timer as timer
-from typing import List, Set, Tuple
-
+from typing import List, Set, Tuple, Dict
 import joblib
 import nmslib
 import numpy as np
@@ -16,9 +15,10 @@ import srsly
 from nmslib.dist import FloatIndex
 from sklearn.feature_extraction.text import TfidfVectorizer
 from spacy.util import from_disk, to_disk
-from spacy_ann.types import AliasCandidate
 from wasabi import Printer
-from spacy_ann.consts import stopwords
+from .types import AliasCandidate
+from .consts import stopwords
+from .util import FrequencyCache
 
 
 class CandidateGenerator:
@@ -40,6 +40,7 @@ class CandidateGenerator:
         ef_search: int = 200,
         ef_construction: int = 2000,
         n_threads: int = 60,
+        max_cache_size: int = 10000
     ):
         """Initialize a CandidateGenerator
 
@@ -57,8 +58,10 @@ class CandidateGenerator:
         self.ef_search = ef_search
         self.ef_construction = ef_construction
         self.n_threads = n_threads
-
         self.ann_index = True
+        self.cache = FrequencyCache(max_size=max_cache_size)
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def _initialize(
         self,
@@ -247,41 +250,54 @@ class CandidateGenerator:
         if mention_texts == []:
             return []
 
-        tfidfs = self.vectorizer.transform(mention_texts)
-        start_time = timer()
+        # 1. 初始化结果列表,与输入长度相同
+        batch_candidates = [None] * len(mention_texts)
+        mentions_to_process = []
+        process_indices = []  # 记录需要处理的mention在原始列表中的位置
+        
+        # 2. 先检查缓存
+        for idx, mention in enumerate(mention_texts):
+            cached_result = self.cache.get(mention)
+            if cached_result is not None:
+                self._cache_hits += 1
+                batch_candidates[idx] = cached_result  # 直接放入对应位置
+            else:
+                self._cache_misses += 1
+                mentions_to_process.append(mention)
+                process_indices.append(idx)  # 记录原始位置
 
-        # `ann_index.knnQueryBatch` crashes if one of the vectors is all zeros.
-        # `nmslib_knn_with_zero_vectors` is a wrapper around `ann_index.knnQueryBatch`
-        # that addresses this issue.
+        # 如果所有mention都在缓存中找到,直接返回
+        if not mentions_to_process:
+            return batch_candidates
+        # 3. 处理未缓存的mentions
+        tfidfs = self.vectorizer.transform(mentions_to_process)
         batch_neighbors, batch_distances = self._nmslib_knn_with_zero_vectors(
             tfidfs, self.k
         )
-        end_time = timer()
-        end_time - start_time
 
-        batch_candidates = []
-        for mention, neighbors, distances in zip(
-            mention_texts, batch_neighbors, batch_distances
-        ):
+        # 4. 处理结果并更新缓存,同时保持顺序
+        for result_idx, (mention, orig_idx) in enumerate(zip(mentions_to_process, process_indices)):
+            neighbors = batch_neighbors[result_idx]
+            distances = batch_distances[result_idx]
+            
             if mention in self.short_aliases:
-                batch_candidates.append(
-                    [AliasCandidate(alias=mention, similarity=1.0)])
-                continue
-            if neighbors is None:
-                neighbors = []
-            if distances is None:
-                distances = []
-
-            alias_candidates = []
-            for neighbor_index, distance in zip(neighbors, distances):
-                alias = self.aliases[neighbor_index]
-                similarity = 1.0 - distance
-                alias_candidates.append(
-                    AliasCandidate(alias=alias, similarity=similarity)
-                )
-
-            batch_candidates.append(alias_candidates)
-
+                candidates = [AliasCandidate(alias=mention, similarity=1.0)]
+            else:
+                candidates = []
+                if neighbors is not None and distances is not None:
+                    for neighbor_index, distance in zip(neighbors, distances):
+                        alias = self.aliases[neighbor_index]
+                        similarity = 1.0 - distance
+                        candidates.append(
+                            AliasCandidate(alias=alias, similarity=similarity)
+                        )
+            
+            # 更新缓存
+            self.cache.add(mention, candidates)
+            # 将结果放入原始位置
+            batch_candidates[orig_idx] = candidates
+        # 5. 确保所有位置都已填充
+        assert None not in batch_candidates, "Some mentions were not processed"
         return batch_candidates
 
     def from_disk(self, path: Path, **kwargs):

@@ -33,6 +33,13 @@ The key features are:
 
 * **Built in Web API** for easy deployment and Batch Entity Linking queries
 
+## Update History
+
+### v0.6.0
+
+* Added support for candidate cache
+* Added support for partial match alias use pos tag
+
 ## Requirements
 
 Python 3.6+
