@@ -1,7 +1,7 @@
 import re
 from typing import Dict, List, Tuple, Optional
 from spacy.tokens import Doc, Span
-from .consts import stopwords
+from .consts import stopwords, country_regions
 from .types import AliasCandidate
 from dataclasses import dataclass
 from collections import Counter
@@ -10,7 +10,7 @@ import heapq
 
 def normalize_text(text):
     # remove special characters
-    PUNCTABLE = str.maketrans("", "", '!"#$\()*+,:;<=>?@[\\]^_`{|}~')
+    PUNCTABLE = str.maketrans("", "", r'!"#$\()*+,:;<=>?@[\\]^_`{|}~')
     ascii_punc_chars = dict(
         [it for it in PUNCTABLE.items() if chr(it[0])])
     text = text.translate(ascii_punc_chars)
@@ -26,7 +26,7 @@ def get_spans(doc: Doc) -> List[Span]:
     return list(doc.ents) + link_spans
 
 
-def get_span_text(span):
+def get_span_text(nlp, span):
     """ transform span text by delete redundency words
 
     Args:
@@ -36,17 +36,27 @@ def get_span_text(span):
         span text
     """
     # https://www.ling.upenn.edu/courses/Fall_2003/ling001/penn_treebank_pos.html
-    text = ''.join([w.text for w in span if w.pos_ not in [
-                   'PART', 'ADV', 'ADJ']])
-
-    if len(text) > 3:
+    text = ''.join([w.text for w in span 
+                    if not (
+                        w.pos_ in ['PART', 'ADV'] or
+                        w.text in country_regions
+    )])
+    if len(text) == 0:
+        return span.text
+    elif len(text) > 3:
         if span.label_ in ('ingredient', 'sensorial', 'flavor', 'fragrance'):
             exc_words = stopwords
             text = re.sub('|'.join(exc_words), '', text)
+            # replace GPE
+            if len(text) > 3:
+                doc = nlp.get_pipe('ner')(nlp.make_doc(span.text))
+                loc_ents = [ent for ent in doc.ents if ent.label_ in ('ORG', 'GPE')]
+                for ent in loc_ents:
+                    text = text.replace(ent.text, '')
         elif span.label_ == 'brand' and '/' in text:
             text = text.split('/')[0]
     text = normalize_text(text)
-    return text.strip() or span.text
+    return text.strip()
 
 
 @dataclass

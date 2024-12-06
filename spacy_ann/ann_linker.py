@@ -60,6 +60,7 @@ class AnnLinker(Pipe):
         Tells spaCy that this pipe requires the nlp object
 
         nlp (Language): spaCy Language object
+        disambiguate(str): The entity label name to disambiguate use regexp
 
         RETURNS (AnnLinker): Initialized AnnLinker.
         """
@@ -130,14 +131,16 @@ class AnnLinker(Pipe):
                 ac for ac in alias_candidates if ac.similarity > self.threshold
             ]
             # match noun chunks with 100% similarity
-            if len(alias_candidates) == 0 and len(ent.text) > 4 and ent.label_ in ['ingredient', 'fragrance']:
+            if not self.disambiguate and len(alias_candidates) == 0 and \
+                    len(ent.text) > 4 and ent.label_ in ['ingredient', 'fragrance']:
                 noun_chunks = [w.text for w in self.nlp(ent.text) if w.pos_ in ['NOUN', 'PROPN'] and len(w.text)>=2]
                 if len(noun_chunks) > 0:
                     batch_candidates = self.cg(noun_chunks)
-                    alias_candidates = [
-                        ac for ac in batch_candidates if ac.alias in noun_chunks
-                    ]
-
+                    alias_candidates = []
+                    for acs in batch_candidates:
+                        for ac in acs:
+                            if ac.similarity == 1.0 and ac.alias in noun_chunks:
+                                alias_candidates.append(ac)
             ent._.alias_candidates = alias_candidates
 
             if len(alias_candidates) == 0:
