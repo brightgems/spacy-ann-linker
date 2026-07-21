@@ -21,7 +21,7 @@ def aliases():
 
 @pytest.fixture
 def nlp():
-    return spacy.load("en_core_web_md")
+    return spacy.load("zh_core_web_md")
 
 
 @pytest.fixture()
@@ -32,7 +32,7 @@ def trained_linker():
             [
                 "spacy_ann",
                 "create_index",
-                "en_core_web_md",
+                "zh_core_web_md",
                 "examples/tutorial/data",
                 "examples/tutorial/models",
             ]

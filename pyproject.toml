@@ -22,9 +22,9 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.6",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
     "License :: OSI Approved :: MIT License"
 ]
 requires = [
@@ -32,7 +32,7 @@ requires = [
     "pydantic >= 2.5.3",
     "scikit-learn >= 0.23.1",
     "scipy >= 1.5.1, <1.20.0",
-    "spacy >= 3.5.0, <4.0.0",
+    "spacy >= 3.7.0, <4.0.0",
     "typer >= 0.3.0",
     "tqdm >= 4.43.0, <4.53.0"
 ]

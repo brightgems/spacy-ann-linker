@@ -49,13 +49,13 @@ the `create_index` command will run a few steps and you should see an output lik
 <div class="termy">
 
 ```console
-spacy_ann create_index en_core_web_md examples/tutorial/data examples/tutorial/models
+spacy_ann create_index zh_core_web_md examples/tutorial/data examples/tutorial/models
 
 // The create_index command runs a few steps
 
-// Load the model passed as the first positional argument (en_core_web_md)
+// Load the model passed as the first positional argument (zh_core_web_md)
 ===================== Load Model ======================
-⠹ Loading model en_core_web_md✔ Done.
+⠹ Loading model zh_core_web_md✔ Done.
 ℹ 0 entities without a description
 
 // Train an EntityEncoder on the descriptions of each Entity

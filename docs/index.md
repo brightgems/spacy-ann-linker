@@ -143,9 +143,9 @@ so download a model bigger than `en_core_web_sm`
 <div class="termy">
 
 ```console
-$ spacy download en_core_web_md
+$ spacy download zh_core_web_md
 ---> 100%
-Successfully installed en_core_web_md
+Successfully installed zh_core_web_md
 ```
 
 </div>

@@ -1,6 +1,6 @@
 # coding: utf-8
 import regex as re
-from typing import Callable, DefaultDict, List, Mapping
+from typing import Optional, DefaultDict, List, Mapping
 from typing import Text
 import numpy as np
 from spacy.language import Language
@@ -15,7 +15,7 @@ Span.set_extension('labels_', default=[], force=True)
     "ann_regex_matcher",
     assigns=["doc.ents", "token.ent_type","span._.match_"],
 )
-def extract_rule_rela(nlp, name: str, regex: Mapping[str, str],stopwords: List[str]=None,\
+def extract_rule_rela(nlp, name: str, regex: Mapping[str, str],stopwords: Optional[List[str]]=None,\
     alignment_mode: str='expand',overwrite_ents: bool=False):
     return RegexMatcherPipe(nlp, name, regex=regex,stopwords=stopwords, \
         alignment_mode=alignment_mode,overwrite_ents=overwrite_ents)
@@ -24,7 +24,7 @@ def extract_rule_rela(nlp, name: str, regex: Mapping[str, str],stopwords: List[s
 class RegexMatcherPipe:
     name = "ann_regex_matcher"
 
-    def __init__(self, nlp, name, regex: Mapping[str, str], stopwords: List[str] = None,
+    def __init__(self, nlp, name, regex: Mapping[str, str], stopwords: Optional[List[str]] = None,
                  alignment_mode: str = 'expand', overwrite_ents=False):
         '''
             regex matcher for spacy pipeline

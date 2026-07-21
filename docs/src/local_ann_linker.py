@@ -7,7 +7,7 @@ if __name__ == "__main__":
     model_dir = "examples/tutorial/models/ann_linker"
     nlp = spacy.load(model_dir)
 
-    # The NER component of the en_core_web_md model doesn't actually
+    # The NER component of the zh_core_web_md model doesn't actually
     # recognize the aliases as entities so we'll add a
     # spaCy EntityRuler component for now to extract them.
     ruler=nlp.add_pipe('entity_ruler', before="ann_linker")

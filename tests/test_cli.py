@@ -21,7 +21,7 @@ def test_create_index():
         [
             "spacy_ann",
             "create_index",
-            "en_core_web_md",
+            "zh_core_web_md",
             "examples/tutorial/data",
             "examples/tutorial/models",
         ]

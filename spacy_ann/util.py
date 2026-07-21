@@ -69,7 +69,6 @@ class FrequencyCache:
     def __init__(self, max_size: int = 10000):
         self.max_size = max_size
         self._cache: Dict[str, CacheItem] = {}
-        self._access_count = Counter()
         
     def get(self, key: str) -> Optional[List[AliasCandidate]]:
         """获取缓存项，并更新访问频率"""
