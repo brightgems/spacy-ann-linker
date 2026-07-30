@@ -214,7 +214,7 @@ class AnnLinker(Pipe):
                         for ac in acs:
                             if ac.similarity == 1.0 and ac.alias in noun_chunks:
                                 alias_candidates.append(ac)
-
+            ent._.alias_candidates = alias_candidates
             if len(alias_candidates) == 0:
                 continue
 
