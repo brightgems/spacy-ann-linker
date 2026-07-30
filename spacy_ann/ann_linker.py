@@ -128,8 +128,6 @@ class AnnLinker(Pipe):
         self.enable_context_similarity = enable_context_similarity
         self.disambiguate = disambiguate
         # Cache lightweight pipeline components to avoid repeated get_pipe() lookups
-        self._tagger = None
-        self._attribute_ruler = None
         self._doc_count = 0  # counter for periodic GPU memory cleanup
         if disambiguate and self.ent_label_map:
             self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()}, before="ann_linker")
