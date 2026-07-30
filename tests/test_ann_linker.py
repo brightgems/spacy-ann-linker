@@ -17,8 +17,10 @@ def test_ann_linker(trained_linker):
 
     ents = list(doc.ents)
     assert ents[0].kb_id_ == "a3"
+    assert ents[0]._.alias_candidates is not None, 'alias_candidates must be assigned'
     assert ents[1].kb_id_ == "a15"
     assert ents[2].kb_id_ == "a1"
+
 
 def test_ann_linker_with_discriminate(trained_linker):
     nlp = trained_linker
@@ -30,3 +32,4 @@ def test_ann_linker_with_discriminate(trained_linker):
     ents = list(doc.ents)
     assert len(ents) == 1
     assert ents[0].kb_id_ == "a1"
+    assert ents[0]._.alias_candidates is not None, 'alias_candidates must be assigned'
