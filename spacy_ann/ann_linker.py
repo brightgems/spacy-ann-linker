@@ -14,6 +14,7 @@ from spacy.kb import InMemoryLookupKB
 from spacy.language import Language
 from spacy.tokens import Doc, Span
 from spacy_ann.candidate_generator import CandidateGenerator
+from spacy_ann.llm_disambiguator import LLMDisambiguator
 from spacy_ann.types import KnowledgeBaseCandidate
 from spacy_ann.util import get_spans, get_span_text
 from .regex_matcher_pipe import RegexMatcherPipe
@@ -27,8 +28,11 @@ _GPU_CLEANUP_INTERVAL = 1000
     assigns=["span._.kb_alias"],
     default_config={
         'threshold': 0.7,
-        'enable_context_similarity': False,
-        'disambiguate': ""
+        'disambiguate': "",
+        'llm_base_url': "",
+        'llm_api_key': "",
+        'llm_model': "",
+        'llm_context_chars': 2000
     },
     default_score_weights={
         "ents_f": 1.0,
@@ -41,15 +45,21 @@ def make_ann_linker(
     nlp: Language,
     name: str,
     threshold: float,
-    enable_context_similarity: bool,
-    disambiguate: str
+    disambiguate: str,
+    llm_base_url: str = "",
+    llm_api_key: str = "",
+    llm_model: str = "",
+    llm_context_chars: int = 2000,
 ):
     return AnnLinker(
         nlp,
         name,
         threshold,
-        enable_context_similarity,
-        disambiguate
+        disambiguate,
+        llm_base_url=llm_base_url,
+        llm_api_key=llm_api_key,
+        llm_model=llm_model,
+        llm_context_chars=llm_context_chars,
     )
 
 
@@ -78,11 +88,6 @@ class AnnLinker(Pipe):
        those whose ``label`` starts with the ``disambiguate`` string are
        kept, effectively discarding candidates from unrelated entity types.
 
-    When ``disambiguate`` is empty (the default), the linker runs in
-    **general mode**: mentions are collected from both ``doc.ents`` and
-    ``doc.spans["annlink"]``, text normalisation is applied via
-    ``get_span_text()``, and no label-based filtering is performed on KB
-    candidates.
     """
 
     @classmethod
@@ -101,14 +106,13 @@ class AnnLinker(Pipe):
         """
         return cls(nlp, **cfg)
 
-    def __init__(self, nlp, name="entity_linker", threshold=0.7, enable_context_similarity=False, disambiguate=None):
+    def __init__(self, nlp, name="entity_linker", threshold=0.7, disambiguate=None,
+                 llm_base_url="", llm_api_key="", llm_model="", llm_context_chars=2000):
         """Initialize the AnnLinker.
 
         nlp (Language): spaCy Language object.
         name (str): Pipeline component name.
         threshold (float): Minimum alias similarity to keep a candidate.
-        enable_context_similarity (bool): If True, use entity vectors and
-            doc context to pick the most likely candidate.
         disambiguate (str): Entity label name that activates disambiguation
             mode.  When non-empty, a regex-based pre-detector
             (``ann_regex_matcher``) is inserted before this linker to find
@@ -125,8 +129,18 @@ class AnnLinker(Pipe):
         self.cg = None
         self.ent_label_map = {}
         self.threshold = threshold
-        self.enable_context_similarity = enable_context_similarity
         self.disambiguate = disambiguate
+        self.llm_base_url = llm_base_url
+        self.llm_model = llm_model
+        self.llm_context_chars = llm_context_chars
+        self.llm_disambiguator = None
+        if llm_base_url:
+            self.llm_disambiguator = LLMDisambiguator(
+                base_url=llm_base_url,
+                api_key=llm_api_key,
+                model=llm_model,
+                context_chars=llm_context_chars,
+            )
         # Cache lightweight pipeline components to avoid repeated get_pipe() lookups
         self._doc_count = 0  # counter for periodic GPU memory cleanup
         if disambiguate and self.ent_label_map:
@@ -166,18 +180,9 @@ class AnnLinker(Pipe):
     def __call__(self, doc: Doc) -> Doc:
         """Annotate spaCy doc.ents with candidate info.
 
-        In disambiguation mode (``self.disambiguate`` is non-empty):
-          - Mentions are taken from ``doc.ents`` only (NER + regex matcher
-            spans), using raw entity text without normalisation.
-          - KB candidates whose label does not start with the
-            ``disambiguate`` value are discarded.
-
         In general mode (``self.disambiguate`` is empty):
-          - Mentions are collected from ``doc.ents`` and
-            ``doc.spans["annlink"]``, with text normalisation via
-            ``get_span_text()``.
-          - A noun-chunk fallback is attempted for entities with no
-            candidates (``ingredient`` / ``fragrance`` labels only).
+          - Mentions are collected from ``doc.spans["annlink"]`` or ``doc.ents``
+
           - No label-based filtering is applied to KB candidates.
 
         doc (Doc): spaCy Doc
@@ -188,32 +193,36 @@ class AnnLinker(Pipe):
         self.require_kb()
         self.require_cg()
 
-        if self.disambiguate:
-            mentions = doc.ents
-            mention_strings = [ent.text for ent in mentions]
-        else:
-            mentions = get_spans(doc)
-            mention_strings = [get_span_text(self.nlp, e) for e in mentions]
+        mentions = get_spans(doc)
+        mention_strings = [get_span_text(e) for e in mentions]
+
         batch_candidates = self.cg(mention_strings)
 
-        for ent, alias_candidates in zip(mentions, batch_candidates):
+        for ent, nms_candidates in zip(mentions, batch_candidates):
             alias_candidates = [
-                ac for ac in alias_candidates if ac.similarity > self.threshold
+                ac for ac in nms_candidates if ac.similarity > self.threshold
             ]
-            if (
-                not self.disambiguate
-                and len(alias_candidates) == 0
-                and len(ent.text) > 4
-                and ent.label_ in ("ingredient", "fragrance")
-            ):
-                noun_chunks = [w.text for w in self.nlp(ent.text) if w.pos_ in ['NOUN', 'PROPN'] and len(w.text)>=2]
-                if len(noun_chunks) > 0:
-                    batch_candidates = self.cg(noun_chunks)
-                    alias_candidates = []
-                    for acs in batch_candidates:
-                        for ac in acs:
-                            if ac.similarity == 1.0 and ac.alias in noun_chunks:
-                                alias_candidates.append(ac)
+            if len(alias_candidates) == 0 and nms_candidates:
+                # find alias use llm
+                if self.llm_disambiguator is not None:
+                    llm_nms_candidates = [
+                        KnowledgeBaseCandidate(
+                            entity=ac.alias, label="", similarity=ac.similarity
+                        )
+                        for ac in nms_candidates
+                    ]
+                    idx_muti = self.llm_disambiguator.invoke_multi(
+                        mention=ent.text,
+                        label=ent.label_ or "",
+                        context=doc.text,
+                        candidates=llm_nms_candidates,
+                    )
+                    if idx_muti:
+                        for idx in idx_muti:
+                            if 1 <= idx <= len(nms_candidates):
+                                best_candidate = nms_candidates[idx - 1]
+                                best_candidate.similarity = 1.0
+                                alias_candidates.append(best_candidate)
             ent._.alias_candidates = alias_candidates
             if len(alias_candidates) == 0:
                 continue
@@ -236,39 +245,17 @@ class AnnLinker(Pipe):
             candicate_similarity = [
                 ac.similarity for ac in alias_candidates
             ]
-            if self.enable_context_similarity and ent.has_vector:
-                # create candidate matrix
-                entity_encodings = np.asarray(
-                    [c.entity_vector for c in kba_candidates]
-                )
-                is_cupy = str(type(doc.vector)).count("cupy")
-                if is_cupy:
-                    doc_vector = doc.vector.T.get()
-                else:
-                    doc_vector = doc.vector.T
-                candidate_norm = np.linalg.norm(
-                    entity_encodings, axis=1)
-                sims = np.dot(entity_encodings, doc_vector) / (
-                    (candidate_norm * doc.vector_norm) + 1e-8
-                )
-                del entity_encodings
-            else:
-                sims = np.zeros(len(kba_candidates))
+
             kb_candidates = []
-            for cand, alias_idx, csim in zip(kba_candidates, kba_alias_idx, sims):
-                asim = candicate_similarity[alias_idx]
+            for cand, alias_idx in zip(kba_candidates, kba_alias_idx):
                 kb_candidates.append(
                     KnowledgeBaseCandidate(
                         entity=cand.entity_, label=self.ent_label_map.get(
                             cand.entity_, ''),
-                        similarity=csim if self.enable_context_similarity and csim > 0 else asim,
-                        context_similarity=csim,
-                        alias_similarity=asim
+                        similarity=candicate_similarity[alias_idx]
                     )
                 )
 
-            if self.disambiguate and isinstance(self.disambiguate, str):
-                kb_candidates = [ent for ent in kb_candidates if ent.label.startswith(self.disambiguate)]
             if kb_candidates:
                 # dedup by entity, keep max item for each entity
                 kb_candidates = sorted(kb_candidates, key=lambda x: (
@@ -281,12 +268,14 @@ class AnnLinker(Pipe):
                     kb_candidates, key=lambda x: x.similarity, reverse=True)
                 ent._.kb_candidates = kb_candidates
 
-                # select best candidate as entity
-                exact_match = [c for c in kb_candidates if c.label==ent.label_ and c.similarity==1]
+                # Select best candidate as entity.
+                exact_match = [c for c in kb_candidates if c.label == ent.label_ and c.similarity == 1]
                 if exact_match:
                     best_candidate = exact_match[0]
                 else:
                     best_candidate = kb_candidates[0]
+
+                ent.kb_id_ = best_candidate.entity
                 for t in ent:
                     t.ent_kb_id_ = best_candidate.entity
 
@@ -312,6 +301,18 @@ class AnnLinker(Pipe):
         cg (CandidateGenerator): Initialized CandidateGenerator
         """
         self.cg = cg
+
+    def set_llm_disambiguator(self, disambiguator):
+        """Set an LLMDisambiguator for LLM-based entity disambiguation.
+
+        disambiguator (LLMDisambiguator): Initialized LLMDisambiguator, or
+            None to disable LLM disambiguation.
+        """
+        self.llm_disambiguator = disambiguator
+        if disambiguator is not None:
+            self.llm_base_url = getattr(disambiguator, "base_url", "")
+            self.llm_model = getattr(disambiguator, "model", "")
+            self.llm_context_chars = getattr(disambiguator, "context_chars", 2000)
 
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
@@ -378,10 +379,20 @@ class AnnLinker(Pipe):
         cfg = srsly.read_json(path / "cfg")
 
         self.threshold = cfg.get("threshold", 0.7)
-        self.enable_context_similarity = cfg.get(
-            "enable_context_similarity", False)
+
         if isinstance(cfg.get("disambiguate"), str):
             self.disambiguate = cfg.get("disambiguate")
+        self.llm_base_url = cfg.get("llm_base_url", "")
+        self.llm_model = cfg.get("llm_model", "gpt-4o-mini")
+        self.llm_context_chars = cfg.get("llm_context_chars", 2000)
+        if self.llm_base_url:
+            self.llm_disambiguator = LLMDisambiguator(
+                base_url=self.llm_base_url,
+                model=self.llm_model,
+                context_chars=self.llm_context_chars,
+            )
+        else:
+            self.llm_disambiguator = None
         if osp.exists(path / "el"):
             self.ent_label_map = srsly.read_json(path / "el")
         return self
@@ -398,8 +409,10 @@ class AnnLinker(Pipe):
 
         cfg = {
             "threshold": self.threshold,
-            "enable_context_similarity": self.enable_context_similarity,
             "disambiguate": self.disambiguate,
+            "llm_base_url": self.llm_base_url,
+            "llm_model": self.llm_model,
+            "llm_context_chars": self.llm_context_chars,
         }
         srsly.write_json(path / "cfg", cfg)
 

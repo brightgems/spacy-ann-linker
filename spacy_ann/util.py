@@ -24,9 +24,9 @@ def get_spans(doc: Doc) -> List[Span]:
     """get all spans from doc"""
     link_spans = list(doc.spans.get('annlink', []))
     return list(doc.ents) + link_spans
-
-
-def get_span_text(nlp, span):
+    
+    
+def get_span_text(span):
     """ transform span text by delete redundency words
 
     Args:
@@ -39,31 +39,19 @@ def get_span_text(nlp, span):
     text = ''.join([w.text for w in span 
                     if not (
                         w.pos_ in ['PART', 'ADV'] or
-                        w.text in country_regions
+                        w.text in country_regions + stopwords
     )])
     if len(text) == 0:
         return span.text
-    elif len(text) > 3:
-        if span.label_ in ('ingredient', 'sensorial', 'flavor', 'fragrance'):
-            exc_words = stopwords
-            text = re.sub('|'.join(exc_words), '', text)
-            # replace GPE
-            if len(text) > 3:
-                doc = nlp.get_pipe('ner')(nlp.make_doc(span.text))
-                loc_ents = [ent for ent in doc.ents if ent.label_ in ('ORG', 'GPE')]
-                for ent in loc_ents:
-                    text = text.replace(ent.text, '')
-        elif span.label_ == 'brand' and '/' in text:
-            text = text.split('/')[0]
-    text = normalize_text(text)
+    elif span.label_ == 'brand' and '/' in text:
+            text = normalize_text(text.split('/')[0])
     return text.strip()
-
 
 @dataclass
 class CacheItem:
     candidates: List[AliasCandidate]
     frequency: int = 1
-    last_access: float = 0.0
+
 
 class FrequencyCache:
     def __init__(self, max_size: int = 10000):

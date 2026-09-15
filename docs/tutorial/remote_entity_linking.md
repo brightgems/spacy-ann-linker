@@ -132,11 +132,9 @@ Now if you click on the green highlighted link route, click the button that says
           "kb_candidates": [
             {
               "entity": "a3",
-              "context_similarity": 0.8408428185071984
             },
             {
               "entity": "a4",
-              "context_similarity": 0.8260134868278688
             }
           ]
         },
@@ -155,7 +153,6 @@ Now if you click on the green highlighted link route, click the button that says
           "kb_candidates": [
             {
               "entity": "a15",
-              "context_similarity": 0.8439850025368583
             }
           ]
         },
@@ -174,7 +171,6 @@ Now if you click on the green highlighted link route, click the button that says
           "kb_candidates": [
             {
               "entity": "a1",
-              "context_similarity": 0.8208977825866187
             }
           ]
         }

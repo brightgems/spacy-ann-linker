@@ -72,7 +72,6 @@ async def link(
 
         for i, ent in enumerate(spacy_doc.ents):
             doc.spans[i].id = ent.kb_id_
-            doc.spans[i].alias_candidates = ent._.alias_candidates
             doc.spans[i].kb_candidates = ent._.kb_candidates
 
         # print(doc)

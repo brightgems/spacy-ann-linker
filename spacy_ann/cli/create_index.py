@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 from pathlib import Path
-
+import numpy as np
 import spacy
 import srsly
 import typer
@@ -45,8 +45,21 @@ def create_index(
     msg = Printer(hide_animation=not verbose)
 
     msg.divider("Load Model")
-    with msg.loading(f"Loading model {model}"):
-        nlp = spacy.load(model)
+    
+    if model.startswith("jieba"):
+        with msg.loading("Loading model jieba tokenizer"):
+            nlp = spacy.blank("zh", config={
+                "nlp": {
+                    "tokenizer": {
+                        "@tokenizers": "spacy.zh.ChineseTokenizer",
+                        "segmenter": "jieba"
+                    }
+                }
+            })
+    else:
+        with msg.loading(f"Loading model {model}"):
+            nlp = spacy.load(model)
+
         msg.good("Done.")
 
     if output_dir is not None:
@@ -70,28 +83,14 @@ def create_index(
             ent_label_map[e["id"]]=e["label"]
         freqs.append(100)
 
-    # msg.divider("Train EntityEncoder")
-
-    # with msg.loading("Starting training EntityEncoder"):
-    #     # training entity description encodings
-    #     # this part can easily be replaced with a custom entity encoder
-    #     encoder = EntityEncoder(nlp=nlp, input_dim=INPUT_DIM, desc_width=DESC_WIDTH, epochs=n_iter)
-    #     encoder.train(description_list=descriptions, to_print=True)
-    #     msg.good("Done Training")
-
     msg.divider("Apply EntityEncoder")
-
-    with msg.loading("Applying EntityEncoder to descriptions"):
-        # get the pretrained entity vectors
-        embeddings = [nlp.make_doc(desc).vector for desc in descriptions]
-        msg.good("Finished, embeddings created")
 
     with msg.loading("Setting kb entities and aliases"):
         # set the entities, can also be done by calling `kb.add_entity` for each entity
         for i in range(len(entity_ids)):
             entity = entity_ids[i]
             if not kb.contains_entity(entity):
-                kb.add_entity(entity, freqs[i], embeddings[i])
+                kb.add_entity(entity, freqs[i], np.zeros(INPUT_DIM, dtype="f"))
 
         for a in aliases:
             ents = [e for e in a["entities"] if kb.contains_entity(e)]

@@ -144,7 +144,7 @@ kb_dir
 ## spaCy prerequisites
 
 If you don't have a pretrained spaCy model, download one now. The model needs to have vectors
-so download a model bigger than `en_core_web_sm`
+so download a model bigger than `zh_core_web_sm`
 
 
 <div class="termy">

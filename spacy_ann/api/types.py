@@ -7,15 +7,6 @@ from pydantic import BaseModel
 # from spacy.kb import Candidate
 from spacy_ann.types import AliasCandidate, KnowledgeBaseCandidate
 
-# class ApiAliasCandidate(BaseModel):
-#     alias: str
-#     similarity: float
-
-
-# class ApiKBCandidate(BaseModel):
-#     entity: str
-#     context_similarity: float
-
 
 class LinkingSpan(BaseModel):
     text: str
