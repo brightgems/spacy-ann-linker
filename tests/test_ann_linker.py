@@ -158,7 +158,7 @@ def test_llm_invoke_multi_parses_multiple_indices():
         KnowledgeBaseCandidate(entity="檀香", label="SCENT", similarity=0.8),
     ]
     disambiguator = LLMDisambiguator(
-        base_url="https://localhost:11434/v1",
+        base_url="https://api.example.com/v1",
         api_key="sk-mock",
         model="ornith-1.5:9b",
     )
@@ -196,13 +196,125 @@ def test_llm_prompt_asks_for_multiple_indices():
 
 
 # ---------------------------------------------------------------------------
+# Retry behavior: transient failures (timeout / connection error / 429 / 5xx)
+# must be retried with backoff; non-retryable errors (4xx) must not retry.
+# ---------------------------------------------------------------------------
+
+def _ok_response(content="1"):
+    """Build a MagicMock standing in for a successful requests.Response."""
+    fake = MagicMock()
+    fake.status_code = 200
+    fake.reason = "OK"
+    fake.raise_for_status = lambda: None
+    fake.json.return_value = {
+        "choices": [{"message": {"content": content}}]
+    }
+    return fake
+
+
+def _status_response(status_code, reason="Error"):
+    """Build a MagicMock standing in for an error requests.Response whose
+    raise_for_status raises an HTTPError."""
+    import requests as _requests
+
+    fake = MagicMock()
+    fake.status_code = status_code
+    fake.reason = reason
+
+    def _raise():
+        raise _requests.exceptions.HTTPError(
+            f"{status_code} {reason}", response=fake
+        )
+
+    fake.raise_for_status = _raise
+    return fake
+
+
+def test_llm_retry_on_timeout_then_success():
+    """A Timeout on the first attempt must be retried and succeed on the
+    second attempt, with backoff sleep between attempts."""
+    import requests as _requests
+    from spacy_ann.types import KnowledgeBaseCandidate
+
+    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    disambiguator = LLMDisambiguator(
+        base_url="https://x/v1", model="m", max_retries=2, retry_backoff=0.01,
+    )
+    side = [_requests.exceptions.Timeout("boom"), _ok_response("1")]
+    with patch("spacy_ann.llm_disambiguator.requests.post",
+               side_effect=side) as mock_post, \
+         patch("spacy_ann.llm_disambiguator.time.sleep") as mock_sleep:
+        idx = disambiguator.invoke("m", "L", "ctx", cands)
+    assert idx == 1
+    assert mock_post.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_llm_retry_on_503_then_success():
+    """A retryable 503 on the first attempt must be retried and succeed on
+    the second attempt."""
+    from spacy_ann.types import KnowledgeBaseCandidate
+
+    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    disambiguator = LLMDisambiguator(
+        base_url="https://x/v1", model="m", max_retries=2, retry_backoff=0.01,
+    )
+    side = [_status_response(503, "Service Unavailable"), _ok_response("1")]
+    with patch("spacy_ann.llm_disambiguator.requests.post",
+               side_effect=side) as mock_post, \
+         patch("spacy_ann.llm_disambiguator.time.sleep") as mock_sleep:
+        idx = disambiguator.invoke("m", "L", "ctx", cands)
+    assert idx == 1
+    assert mock_post.call_count == 2
+    assert mock_sleep.call_count == 1
+
+
+def test_llm_retry_exhausted_returns_none():
+    """When all attempts time out, invoke_with_detail must return index=None
+    with an error set, and post must be called max_retries+1 times."""
+    import requests as _requests
+    from spacy_ann.types import KnowledgeBaseCandidate
+
+    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    disambiguator = LLMDisambiguator(
+        base_url="https://x/v1", model="m", max_retries=1, retry_backoff=0.01,
+    )
+    with patch("spacy_ann.llm_disambiguator.requests.post",
+               side_effect=_requests.exceptions.Timeout("boom")) as mock_post, \
+         patch("spacy_ann.llm_disambiguator.time.sleep"):
+        detail = disambiguator.invoke_with_detail("m", "L", "ctx", cands)
+    assert detail["index"] is None
+    assert detail["error"]
+    assert mock_post.call_count == 2  # max_retries + 1
+
+
+def test_llm_no_retry_on_404():
+    """A non-retryable 404 must not be retried; post is called once and an
+    error is recorded."""
+    from spacy_ann.types import KnowledgeBaseCandidate
+
+    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    disambiguator = LLMDisambiguator(
+        base_url="https://x/v1", model="m", max_retries=3, retry_backoff=0.01,
+    )
+    with patch("spacy_ann.llm_disambiguator.requests.post",
+               return_value=_status_response(404, "Not Found")) as mock_post, \
+         patch("spacy_ann.llm_disambiguator.time.sleep") as mock_sleep:
+        detail = disambiguator.invoke_with_detail("m", "L", "ctx", cands)
+    assert detail["index"] is None
+    assert detail["error"]
+    assert mock_post.call_count == 1
+    assert mock_sleep.call_count == 0
+
+
+# ---------------------------------------------------------------------------
 # E2E test with a real Ollama endpoint (no mock).
 #
 # Skipped unless OPENAI_BASE_URL is set in the environment.
 # Defaults: model=ornith-1.5:9b, api_key from OPENAI_API_KEY (or "ollama").
 # ---------------------------------------------------------------------------
 
-_OLLAMA_BASE_URL = "https://localhost:11434/v1"
+_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 _OLLAMA_API_KEY = "ollama"
 _OLLAMA_MODEL = "ornith-1.5:9b"
 
@@ -214,8 +326,12 @@ _skip_no_llm = pytest.mark.skipif(
 
 @_skip_no_llm
 @pytest.mark.parametrize("text, links", [
-    ("栀子花+白麝香调香：伪体香感拉满，第二天枕头上还是淡淡的香", ['栀子花', '白麝香']),
+    ("栀子花+白麝香调香：伪体香感拉满，第二天枕头上还是淡淡的香", ['栀子花香', '白麝香']),
     ("祖玛珑鼠尾草海盐香水：清新淡雅，适合夏天使用", ['jo malone london/祖玛珑', '鼠尾草', '海盐']),
+    ("被誉为“木中黄金”的珍贵乌木：天然木质香调，沉稳大气", ['乌木']),
+    ("淡淡的乌木玫瑰香：温暖舒适，适合秋冬使用", ['乌木玫瑰香']),
+    ("淡淡的乌木檀香：天然木质香调，沉稳大气", ['乌木檀香']),
+    ("玉龙茶香: 伪体香感拉满", ["茶香"])
 ])
 def test_llm_scent_linking(scent_linker,text, links):
     """E2E: real LLM links individual scent mentions to KB entities.
@@ -235,6 +351,10 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "BRAND", "pattern": "祖玛珑"},
         {"label": "FRAGRANCE", "pattern": "鼠尾草"},
         {"label": "FRAGRANCE", "pattern": "海盐"},
+        {"label": "FRAGRANCE", "pattern": "被誉为“木中黄金”的珍贵乌木"},
+        {"label": "FRAGRANCE", "pattern": "淡淡的乌木玫瑰香"},
+        {"label": "FRAGRANCE", "pattern": "乌木檀香"},
+        {"label": "FRAGRANCE", "pattern": "玉龙茶香"},
     ])
 
     disambiguator = LLMDisambiguator(
@@ -255,7 +375,7 @@ def test_llm_scent_linking(scent_linker,text, links):
 
         # Each linked entity must have kb_candidates populated
         for ent in linked:
-            selected = ent._.kb_candidates if ent._.kb_candidates else []
+            selected = [x for x in ent._.kb_candidates if x.label==ent.label_.lower()] if ent._.kb_candidates else []
             assert selected, (
                 f"kb_candidates empty for linked scent entity '{ent.text}'"
             )
@@ -265,7 +385,6 @@ def test_llm_scent_linking(scent_linker,text, links):
                 f"for '{ent.text}'"
             )
             # The selected entity must be a valid scent entity id
-            
             assert selected[0].entity.split('___')[1] in links
     finally:
         ann_linker.set_llm_disambiguator(None)

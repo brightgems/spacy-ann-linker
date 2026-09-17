@@ -22,6 +22,7 @@ DEBUG level so it can be captured for debugging without code changes.
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -29,6 +30,10 @@ import requests
 from .types import KnowledgeBaseCandidate
 
 logger = logging.getLogger(__name__)
+
+# HTTP status codes considered transient and worth retrying: rate limiting
+# (429) and the common server-side failures (5xx).
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 class LLMDisambiguator:
@@ -53,6 +58,8 @@ class LLMDisambiguator:
         context_chars: int = 2000,
         temperature: float = 0.0,
         verbose: bool = False,
+        max_retries: int = 3,
+        retry_backoff: float = 2.0,
     ):
         """Initialize the LLMDisambiguator.
 
@@ -69,6 +76,13 @@ class LLMDisambiguator:
         verbose (bool): If True, log the prompt, HTTP status, raw response,
             parsed index, and any reasoning trace at DEBUG level via the
             ``spacy_ann.llm_disambiguator`` logger.
+        max_retries (int): Number of retry attempts after the initial request
+            on transient failures (timeouts, connection errors, and the status
+            codes in ``_RETRYABLE_STATUS``). 0 disables retrying. The total
+            number of attempts is ``max_retries + 1``.
+        retry_backoff (float): Base seconds for exponential backoff between
+            retries. The wait before attempt *n* (0-based) is
+            ``retry_backoff * (2 ** n)``.
         """
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
@@ -77,6 +91,8 @@ class LLMDisambiguator:
         self.context_chars = context_chars
         self.temperature = temperature
         self.verbose = verbose
+        self.max_retries = max(0, int(max_retries))
+        self.retry_backoff = float(retry_backoff)
         if verbose:
             logging.getLogger(__name__).setLevel(logging.DEBUG)
         # Most recent reasoning trace (chain-of-thought), or "" if the
@@ -171,6 +187,74 @@ class LLMDisambiguator:
         detail = self.invoke_with_detail(mention, label, context, candidates)
         return detail.get("indices") or []
 
+    def _post_with_retry(
+        self,
+        url: str,
+        headers: Dict[str, str],
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """POST the chat payload, retrying on transient failures.
+
+        Retries on ``requests.exceptions.Timeout`` /
+        ``requests.exceptions.ConnectionError`` and on the HTTP status codes
+        in ``_RETRYABLE_STATUS`` (429, 5xx), using exponential backoff
+        (``retry_backoff * 2**attempt``). Non-retryable errors (e.g. 404, 400)
+        raise immediately via ``raise_for_status``. Raises the last exception
+        if all attempts are exhausted.
+
+        url (str): Full request URL.
+        headers (Dict[str, str]): Request headers.
+        payload (Dict[str, Any]): JSON body.
+
+        RETURNS (Dict[str, Any]): Parsed JSON response body.
+        """
+        total = self.max_retries + 1
+        last_exc: Optional[Exception] = None
+        for attempt in range(total):
+            try:
+                res = requests.post(
+                    url, headers=headers, json=payload, timeout=self.timeout
+                )
+                logger.debug(
+                    "LLM HTTP %s %s (attempt %d/%d)",
+                    res.status_code, res.reason, attempt + 1, total,
+                )
+                if (
+                    res.status_code in _RETRYABLE_STATUS
+                    and attempt < self.max_retries
+                ):
+                    wait = self.retry_backoff * (2 ** attempt)
+                    logger.debug(
+                        "LLM retryable status %s; retrying in %.1fs "
+                        "(attempt %d/%d)",
+                        res.status_code, wait, attempt + 1, total,
+                    )
+                    time.sleep(wait)
+                    continue
+                res.raise_for_status()
+                return res.json()
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ) as exc:
+                last_exc = exc
+                if attempt < self.max_retries:
+                    wait = self.retry_backoff * (2 ** attempt)
+                    logger.debug(
+                        "LLM %s; retrying in %.1fs (attempt %d/%d)",
+                        type(exc).__name__, wait, attempt + 1, total,
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+        # All retryable attempts exhausted via status-code path: surface the
+        # last error so the caller can record it.
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(
+            "LLM request exhausted retries without a response"
+        )
+
     def invoke_with_detail(
         self,
         mention: str,
@@ -213,12 +297,7 @@ class LLMDisambiguator:
                 "messages": [{"role": "user", "content": prompt}],
             }
             logger.debug("LLM prompt:\n%s", prompt)
-            res = requests.post(
-                url, headers=headers, json=payload, timeout=self.timeout
-            )
-            logger.debug("LLM HTTP %s %s", res.status_code, res.reason)
-            res.raise_for_status()
-            data = res.json()
+            data = self._post_with_retry(url, headers, payload)
         except Exception as exc:
             result["error"] = str(exc)
             self.last_response = None
