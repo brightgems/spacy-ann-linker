@@ -148,6 +148,7 @@ class CandidateGenerator:
             alias for alias, flag in zip(kb_aliases, empty_tfidfs_boolean_flags) if flag
         ]
         alias_tfidfs = alias_tfidfs[empty_tfidfs_boolean_flags]
+        msg.text(f"alias_tfidfs feature dims: {alias_tfidfs.shape[1]}")
         assert len(aliases) == np.size(alias_tfidfs, 0)
 
         msg.text(f"Fitting ann index on {len(aliases)} aliases")
