@@ -96,7 +96,7 @@ class CandidateGenerator:
 
         RETURNS (CandidateGenerator): An initialized CandidateGenerator
         """
-        msg = Printer(no_print=verbose)
+        msg = Printer(no_print=not verbose)
 
         # kb_aliases = self.kb.get_alias_strings()
         short_aliases = set([a for a in kb_aliases if len(a) < 4])
