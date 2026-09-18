@@ -331,7 +331,9 @@ _skip_no_llm = pytest.mark.skipif(
     ("被誉为“木中黄金”的珍贵乌木：天然木质香调，沉稳大气", ['乌木']),
     ("淡淡的乌木玫瑰香：温暖舒适，适合秋冬使用", ['乌木玫瑰香']),
     ("淡淡的乌木檀香：天然木质香调，沉稳大气", ['乌木檀香']),
-    ("玉龙茶香: 伪体香感拉满", ["茶香"])
+    ("玉龙茶香: 伪体香感拉满", ["茶香"]),
+    ("玫瑰的花香: 伪体香感拉满", ["玫瑰花香"]),
+    ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"])
 ])
 def test_llm_scent_linking(scent_linker,text, links):
     """E2E: real LLM links individual scent mentions to KB entities.
@@ -340,7 +342,8 @@ def test_llm_scent_linking(scent_linker,text, links):
     KB entity via the real Ollama endpoint.
     """
     nlp = scent_linker
-
+    if nlp.tokenizer.segmenter=='pkuseg':
+        nlp.tokenizer.pkuseg_update_user_dict(['栀子花', '麝香', '檀香', '祖玛珑', '鼠尾草'])
     ann_linker = nlp.get_pipe("ann_linker")
 
     ruler = nlp.add_pipe("entity_ruler", before="ann_linker")
@@ -355,6 +358,9 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "FRAGRANCE", "pattern": "淡淡的乌木玫瑰香"},
         {"label": "FRAGRANCE", "pattern": "乌木檀香"},
         {"label": "FRAGRANCE", "pattern": "玉龙茶香"},
+        {"label": "FRAGRANCE", "pattern": "*莓"},
+        {"label": "FRAGRANCE", "pattern": "玫瑰的花香"},
+        {"label": "FRAGRANCE", "pattern": "桂花与木香"},
     ])
 
     disambiguator = LLMDisambiguator(
@@ -371,7 +377,10 @@ def test_llm_scent_linking(scent_linker,text, links):
 
         # At least two scent entities should be detected and linked
         linked = [ent for ent in ents if ent._.kb_candidates]
-        assert len(linked) >= 1,  f"Expect more than 1 entities, got {len(linked)}"
+        if not links:
+            assert len(linked) == 0, f"Expect no linked entities, got {len(linked)}"
+        else:
+            assert len(linked) >= 1,  f"Expect more than 1 entities, got {len(linked)}"
 
         # Each linked entity must have kb_candidates populated
         for ent in linked:
