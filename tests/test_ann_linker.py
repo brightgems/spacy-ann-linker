@@ -33,19 +33,6 @@ def test_ann_linker(trained_linker):
     assert ents[2].kb_id_ == "a1"
 
 
-def test_ann_linker_with_discriminate(trained_linker):
-    nlp = trained_linker
-    ann_linker = nlp.get_pipe('ann_linker')
-    ann_linker.disambiguate = "ai"
-    ann_linker.set_entity_lables({"a1": "ai"})
-    doc = nlp("NLP is a highly researched subset of machine learning.")
-    ents = list(doc.ents)
-    assert len(ents) == 1
-    assert ents[0].kb_id_ == "a1"
-    assert ents[0]._.kb_candidates is not None, 'kb_candidates must be assigned'
-
-
-
 # ---------------------------------------------------------------------------
 # Config-path coverage: llm_base_url / default_config / disk persistence /
 # end-to-end invoke() with a real LLMDisambiguator (HTTP mocked).
@@ -82,7 +69,6 @@ def test_ann_linker_init_with_llm_base_url():
         nlp,
         name="ann_linker",
         threshold=0.7,
-        disambiguate=None,
         llm_base_url="https://api.example.com/v1",
         llm_api_key="sk-test",
         llm_model="gpt-4o-mini",
@@ -103,8 +89,7 @@ def test_ann_linker_init_without_llm_base_url():
     """Without llm_base_url the linker must have no disambiguator (cosine
     fallback path stays intact)."""
     nlp = spacy.blank("en")
-    linker = AnnLinker(nlp, name="ann_linker", threshold=0.7,
-                       disambiguate=None)
+    linker = AnnLinker(nlp, name="ann_linker", threshold=0.7)
     assert linker.llm_disambiguator is None
     assert linker.llm_base_url == ""
 
@@ -117,7 +102,6 @@ def test_llm_config_disk_roundtrip(tmp_path):
         nlp,
         name="ann_linker",
         threshold=0.7,
-        disambiguate=None,
         llm_base_url="https://api.example.com/v1",
         llm_api_key="sk-secret",
         llm_model="deepseek-chat",
@@ -128,7 +112,6 @@ def test_llm_config_disk_roundtrip(tmp_path):
     cfg_path = tmp_path / "cfg"
     cfg = {
         "threshold": linker.threshold,
-        "disambiguate": linker.disambiguate,
         "llm_base_url": linker.llm_base_url,
         "llm_model": linker.llm_model,
         "llm_context_chars": linker.llm_context_chars,
@@ -326,14 +309,15 @@ _skip_no_llm = pytest.mark.skipif(
 
 @_skip_no_llm
 @pytest.mark.parametrize("text, links", [
-    ("栀子花+白麝香调香：伪体香感拉满，第二天枕头上还是淡淡的香", ['栀子花香', '白麝香']),
+    ("栀子花+白麝香调香：伪体香感拉满，第二天枕头上还是淡淡的香", ['栀子花香', '麝香']),
     ("祖玛珑鼠尾草海盐香水：清新淡雅，适合夏天使用", ['jo malone london/祖玛珑', '鼠尾草', '海盐']),
     ("被誉为“木中黄金”的珍贵乌木：天然木质香调，沉稳大气", ['乌木']),
     ("淡淡的乌木玫瑰香：温暖舒适，适合秋冬使用", ['乌木玫瑰香']),
     ("淡淡的乌木檀香：天然木质香调，沉稳大气", ['乌木檀香']),
     ("玉龙茶香: 伪体香感拉满", ["茶香"]),
     ("玫瑰的花香: 伪体香感拉满", ["玫瑰花香"]),
-    ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"])
+    ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"]),
+    ("樱花香薰: 伪体香感拉满，*莓不是香", ["樱花香"]),
 ])
 def test_llm_scent_linking(scent_linker,text, links):
     """E2E: real LLM links individual scent mentions to KB entities.
@@ -345,7 +329,6 @@ def test_llm_scent_linking(scent_linker,text, links):
     if nlp.tokenizer.segmenter=='pkuseg':
         nlp.tokenizer.pkuseg_update_user_dict(['栀子花', '麝香', '檀香', '祖玛珑', '鼠尾草'])
     ann_linker = nlp.get_pipe("ann_linker")
-
     ruler = nlp.add_pipe("entity_ruler", before="ann_linker")
     ruler.add_patterns([
         {"label": "FRAGRANCE", "pattern": "栀子花"},
@@ -361,42 +344,37 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "FRAGRANCE", "pattern": "*莓"},
         {"label": "FRAGRANCE", "pattern": "玫瑰的花香"},
         {"label": "FRAGRANCE", "pattern": "桂花与木香"},
+        {"label": "FRAGRANCE", "pattern": "樱花香薰"},
     ])
 
-    disambiguator = LLMDisambiguator(
+    ann_linker.set_llm_disambiguator(
         base_url=_OLLAMA_BASE_URL,
         api_key=_OLLAMA_API_KEY,
-        model=_OLLAMA_MODEL,
-        temperature=0.0,
+        model=_OLLAMA_MODEL
     )
-    ann_linker.set_llm_disambiguator(disambiguator)
 
-    try:
-        doc = nlp(text)
-        ents = list(doc.ents)
+    doc = nlp(text)
+    ents = list(doc.ents)
 
-        # At least two scent entities should be detected and linked
-        linked = [ent for ent in ents if ent._.kb_candidates]
-        if not links:
-            assert len(linked) == 0, f"Expect no linked entities, got {len(linked)}"
-        else:
-            assert len(linked) >= 1,  f"Expect more than 1 entities, got {len(linked)}"
+    # At least two scent entities should be detected and linked
+    linked = [ent for ent in ents if ent._.kb_candidates]
+    if not links:
+        assert len(linked) == 0, f"Expect no linked entities, got {len(linked)}"
+    else:
+        assert len(linked) >= 1,  f"Expect more than 1 entities, got {len(linked)}"
 
-        # Each linked entity must have kb_candidates populated
-        for ent in linked:
-            selected = [x for x in ent._.kb_candidates if x.label==ent.label_.lower()] if ent._.kb_candidates else []
-            assert selected, (
-                f"kb_candidates empty for linked scent entity '{ent.text}'"
-            )
-            # ent_kb_id_ must match the first selected entity
-            assert selected[0].entity is not None, (
-                f"ent_kb_id_ {ent.kb_id_} != first selected {selected[0].entity} "
-                f"for '{ent.text}'"
-            )
-            # The selected entity must be a valid scent entity id
-            assert selected[0].entity.split('___')[1] in links
-    finally:
-        ann_linker.set_llm_disambiguator(None)
-        if "entity_ruler" in nlp.pipe_names:
-            nlp.remove_pipe("entity_ruler")
+    # Each linked entity must have kb_candidates populated
+    for ent in linked:
+        selected = [x for x in ent._.kb_candidates if x.label==ent.label_.lower()] if ent._.kb_candidates else []
+        assert selected, (
+            f"kb_candidates empty for linked scent entity '{ent.text}'"
+        )
+        # ent_kb_id_ must match the first selected entity
+        assert selected[0].entity is not None, (
+            f"ent_kb_id_ {ent.kb_id_} != first selected {selected[0].entity} "
+            f"for '{ent.text}'"
+        )
+        # The selected entity must be a valid scent entity id
+        assert selected[0].entity.split('___')[1] in links
+
 

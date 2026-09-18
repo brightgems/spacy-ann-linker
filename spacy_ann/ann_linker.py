@@ -28,7 +28,6 @@ _GPU_CLEANUP_INTERVAL = 1000
     assigns=["span._.kb_alias"],
     default_config={
         'threshold': 0.7,
-        'disambiguate': "",
         'llm_base_url': "",
         'llm_api_key': "",
         'llm_model': "",
@@ -45,7 +44,6 @@ def make_ann_linker(
     nlp: Language,
     name: str,
     threshold: float,
-    disambiguate: str,
     llm_base_url: str = "",
     llm_api_key: str = "",
     llm_model: str = "",
@@ -55,7 +53,6 @@ def make_ann_linker(
         nlp,
         name,
         threshold,
-        disambiguate,
         llm_base_url=llm_base_url,
         llm_api_key=llm_api_key,
         llm_model=llm_model,
@@ -66,28 +63,6 @@ def make_ann_linker(
 class AnnLinker(Pipe):
     """The AnnLinker adds Entity Linking capabilities to map NER mentions
     to KnowledgeBase Aliases or directly to KnowledgeBase Ids.
-
-    When ``disambiguate`` is set to a non-empty label string (e.g. ``"ai"``),
-    the linker operates in **disambiguation mode**, which restricts entity
-    linking to a single target entity type:
-
-    1. **Pre-detection** – An ``ann_regex_matcher`` pipe is automatically
-       inserted before this linker.  It builds a regex from every KB alias
-       whose candidates carry the specified label (resolved via
-       ``ent_label_map``) and scans the document to create entity spans
-       labelled with the ``disambiguate`` value.  This ensures that phrases
-       which could map to the target type are detected even if the upstream
-       NER missed them.
-
-    2. **Mention collection** – Only ``doc.ents`` (the spans produced by NER
-       + the regex matcher) are used as mentions, and their raw ``ent.text``
-       is passed to the candidate generator — no text normalisation is
-       applied.
-
-    3. **Candidate filtering** – After KB candidates are generated, only
-       those whose ``label`` starts with the ``disambiguate`` string are
-       kept, effectively discarding candidates from unrelated entity types.
-
     """
 
     @classmethod
@@ -96,29 +71,19 @@ class AnnLinker(Pipe):
         Tells spaCy that this pipe requires the nlp object.
 
         nlp (Language): spaCy Language object
-        **cfg: Configuration keywords, including ``disambiguate`` (str) –
-            an entity label name that activates disambiguation mode.  When
-            set, a regex-based pre-detector is added before the linker and
-            KB candidates are filtered to only those whose label starts with
-            this value.  See the class docstring for full details.
+        **cfg: Configuration keywords
 
         RETURNS (AnnLinker): Initialized AnnLinker.
         """
         return cls(nlp, **cfg)
 
-    def __init__(self, nlp, name="entity_linker", threshold=0.7, disambiguate=None,
+    def __init__(self, nlp, name="entity_linker", threshold=0.7,
                  llm_base_url="", llm_api_key="", llm_model="", llm_context_chars=2000):
         """Initialize the AnnLinker.
 
         nlp (Language): spaCy Language object.
         name (str): Pipeline component name.
         threshold (float): Minimum alias similarity to keep a candidate.
-        disambiguate (str): Entity label name that activates disambiguation
-            mode.  When non-empty, a regex-based pre-detector
-            (``ann_regex_matcher``) is inserted before this linker to find
-            phrases whose KB candidates carry this label, and final KB
-            candidates are filtered to only those whose label starts with
-            this value.  See the class docstring for full details.
         """
         Span.set_extension("alias_candidates", default=[], force=True)
         Span.set_extension("kb_candidates", default=[], force=True)
@@ -129,13 +94,13 @@ class AnnLinker(Pipe):
         self.cg = None
         self.ent_label_map = {}
         self.threshold = threshold
-        self.disambiguate = disambiguate
         self.llm_base_url = llm_base_url
+        self.llm_api_key = llm_api_key
         self.llm_model = llm_model
         self.llm_context_chars = llm_context_chars
         self.llm_disambiguator = None
         if llm_base_url:
-            self.llm_disambiguator = LLMDisambiguator(
+            self.set_llm_disambiguator(
                 base_url=llm_base_url,
                 api_key=llm_api_key,
                 model=llm_model,
@@ -143,44 +108,14 @@ class AnnLinker(Pipe):
             )
         # Cache lightweight pipeline components to avoid repeated get_pipe() lookups
         self._doc_count = 0  # counter for periodic GPU memory cleanup
-        if disambiguate and self.ent_label_map:
-            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()}, before="ann_linker")
+
         if not self.nlp.vocab.lookups.has_table("mentions_to_alias_cand"):
             self.nlp.vocab.lookups.add_table("mentions_to_alias_cand")
 
-    def get_match_patterns(self):
-        """Build regex patterns for the ``ann_regex_matcher`` pre-detector.
-
-        Collects all KB aliases whose candidates include at least one entity
-        mapped (via ``ent_label_map``) to the ``disambiguate`` label, then
-        builds a single alternation regex from those alias strings.  The
-        resulting dict maps the ``disambiguate`` label to the combined
-        pattern, so that the regex matcher labels all matched spans with
-        that label.
-
-        RETURNS (dict): Mapping of ``{disambiguate_label: regex_pattern}``.
-        """
-        def get_patterns(words):
-            words = sorted(words, key=len, reverse=True)
-            return "|".join([re.escape(w) for w in words])
-
-        if self.kb is None:
-            return {}
-
-        def is_disambiguate(candidates):
-            candidates = [c for c in candidates
-                          if self.ent_label_map.get(c.entity_) == self.disambiguate]
-            return len(candidates) > 0
-
-        all_aliases = self.kb.get_alias_strings()
-        word_items = [e for e in all_aliases if is_disambiguate(self.kb.get_alias_candidates(e))]
-        return {self.disambiguate: get_patterns(word_items)}
-        
-        
     def __call__(self, doc: Doc) -> Doc:
         """Annotate spaCy doc.ents with candidate info.
 
-        In general mode (``self.disambiguate`` is empty):
+        In general mode
           - Mentions are collected from ``doc.spans["annlink"]`` or ``doc.ents``
 
           - No label-based filtering is applied to KB candidates.
@@ -302,24 +237,27 @@ class AnnLinker(Pipe):
         """
         self.cg = cg
 
-    def set_llm_disambiguator(self, disambiguator):
+    def set_llm_disambiguator(self, base_url, model, api_key="", context_chars=2000):
         """Set an LLMDisambiguator for LLM-based entity disambiguation.
 
         disambiguator (LLMDisambiguator): Initialized LLMDisambiguator, or
             None to disable LLM disambiguation.
         """
-        self.llm_disambiguator = disambiguator
-        if disambiguator is not None:
-            self.llm_base_url = getattr(disambiguator, "base_url", "")
-            self.llm_model = getattr(disambiguator, "model", "")
-            self.llm_context_chars = getattr(disambiguator, "context_chars", 2000)
-
+        self.llm_disambiguator = LLMDisambiguator(
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                context_chars=context_chars,
+            )
+        self.llm_base_url = base_url
+        self.llm_model = model
+        self.llm_api_key = api_key
+        self.llm_context_chars = context_chars
+    
+    
     def set_entity_lables(self, ent_label_map: Dict[str, str]):
         self.ent_label_map = ent_label_map
-        if self.ent_label_map and self.disambiguate and isinstance(self.disambiguate, str):
-            if self.nlp.has_pipe("ann_regex_matcher"):
-                self.nlp.remove_pipe("ann_regex_matcher")
-            self.nlp.add_pipe("ann_regex_matcher", config={"regex": self.get_match_patterns()}, before="ann_linker")
+
 
     def require_kb(self):
         """Raise an error if the kb is not set.
@@ -380,17 +318,12 @@ class AnnLinker(Pipe):
 
         self.threshold = cfg.get("threshold", 0.7)
 
-        if isinstance(cfg.get("disambiguate"), str):
-            self.disambiguate = cfg.get("disambiguate")
         self.llm_base_url = cfg.get("llm_base_url", "")
         self.llm_model = cfg.get("llm_model", "gpt-4o-mini")
+        self.llm_api_key = cfg.get("llm_api_key")
         self.llm_context_chars = cfg.get("llm_context_chars", 2000)
         if self.llm_base_url:
-            self.llm_disambiguator = LLMDisambiguator(
-                base_url=self.llm_base_url,
-                model=self.llm_model,
-                context_chars=self.llm_context_chars,
-            )
+            self.set_llm_disambiguator(self.llm_base_url, self.llm_model, self.llm_api_key)
         else:
             self.llm_disambiguator = None
         if osp.exists(path / "el"):
@@ -409,8 +342,8 @@ class AnnLinker(Pipe):
 
         cfg = {
             "threshold": self.threshold,
-            "disambiguate": self.disambiguate,
             "llm_base_url": self.llm_base_url,
+            "llm_api_key": self.llm_api_key,
             "llm_model": self.llm_model,
             "llm_context_chars": self.llm_context_chars,
         }
