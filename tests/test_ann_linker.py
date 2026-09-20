@@ -345,7 +345,11 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "FRAGRANCE", "pattern": "玫瑰的花香"},
         {"label": "FRAGRANCE", "pattern": "桂花与木香"},
         {"label": "FRAGRANCE", "pattern": "樱花香薰"},
-        {"label": "FRAGRANCE", "pattern": "淡淡的青柠和橘子的混合香"},
+        {"label": "FRAGRANCE", "pattern": [
+            {"TEXT": "淡淡"},
+            {"OP": "*"},          # 中间任意个 Token（0 个或多个）
+            {"TEXT": "混合香"},
+        ]},
     ])
 
     ann_linker.set_llm_disambiguator(
