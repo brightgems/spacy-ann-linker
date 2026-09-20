@@ -297,9 +297,9 @@ def test_llm_no_retry_on_404():
 # Defaults: model=ornith-1.5:9b, api_key from OPENAI_API_KEY (or "ollama").
 # ---------------------------------------------------------------------------
 
-_OLLAMA_BASE_URL = "http://localhost:11434/v1"
-_OLLAMA_API_KEY = "ollama"
-_OLLAMA_MODEL = "ornith-1.5:9b"
+_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+_OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "VP5*zL1")
+_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "ornith-1.5:9b")
 
 _skip_no_llm = pytest.mark.skipif(
     not _OLLAMA_BASE_URL,
