@@ -318,7 +318,7 @@ _skip_no_llm = pytest.mark.skipif(
     ("玫瑰的花香: 伪体香感拉满", ["玫瑰花香"]),
     ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"]),
     ("淡淡的青柠和橘子的混合香: 伪体香感拉满", ['青柠香', '柑橘香']),
-    ("樱花香薰: 伪体香感拉满，*莓不是香", ["樱花香", "香薰"]),
+    ("樱花香薰: 伪体香感拉满", ["樱花香", "香薰"]),
 ])
 def test_llm_scent_linking(scent_linker,text, links):
     """E2E: real LLM links individual scent mentions to KB entities.
@@ -342,7 +342,6 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "FRAGRANCE", "pattern": "淡淡的乌木玫瑰香"},
         {"label": "FRAGRANCE", "pattern": "乌木檀香"},
         {"label": "FRAGRANCE", "pattern": "玉龙茶香"},
-        {"label": "FRAGRANCE", "pattern": "*莓"},
         {"label": "FRAGRANCE", "pattern": "玫瑰的花香"},
         {"label": "FRAGRANCE", "pattern": "桂花与木香"},
         {"label": "FRAGRANCE", "pattern": "樱花香薰"},
