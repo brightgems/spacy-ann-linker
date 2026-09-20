@@ -14,7 +14,7 @@ from spacy.tokens import Doc, Span
 from spacy_ann.candidate_generator import CandidateGenerator
 from spacy_ann.llm_disambiguator import LLMDisambiguator
 from spacy_ann.types import KnowledgeBaseCandidate
-from spacy_ann.util import get_spans, get_span_text
+from spacy_ann.util import get_spans, get_span_text, FrequencyCache
 from .regex_matcher_pipe import RegexMatcherPipe
 
 
@@ -29,7 +29,8 @@ _GPU_CLEANUP_INTERVAL = 1000
         'llm_base_url': "",
         'llm_api_key': "",
         'llm_model': "",
-        'llm_context_chars': 2000
+        'llm_context_chars': 2000,
+        'llm_cache_size': 10000
     },
     default_score_weights={
         "ents_f": 1.0,
@@ -46,6 +47,7 @@ def make_ann_linker(
     llm_api_key: str = "",
     llm_model: str = "",
     llm_context_chars: int = 2000,
+    llm_cache_size: int = 10000,
 ):
     return AnnLinker(
         nlp,
@@ -55,6 +57,7 @@ def make_ann_linker(
         llm_api_key=llm_api_key,
         llm_model=llm_model,
         llm_context_chars=llm_context_chars,
+        llm_cache_size=llm_cache_size,
     )
 
 
@@ -76,7 +79,8 @@ class AnnLinker(Pipe):
         return cls(nlp, **cfg)
 
     def __init__(self, nlp, name="entity_linker", threshold=0.7,
-                 llm_base_url="", llm_api_key="", llm_model="", llm_context_chars=2000):
+                 llm_base_url="", llm_api_key="", llm_model="", llm_context_chars=2000,
+                 llm_cache_size=10000):
         """Initialize the AnnLinker.
 
         nlp (Language): spaCy Language object.
@@ -96,6 +100,8 @@ class AnnLinker(Pipe):
         self.llm_api_key = llm_api_key
         self.llm_model = llm_model
         self.llm_context_chars = llm_context_chars
+        self.llm_cache_size = llm_cache_size
+        self.llm_cache = FrequencyCache(max_size=llm_cache_size)
         self.llm_disambiguator = None
         if llm_base_url:
             self.set_llm_disambiguator(
@@ -144,18 +150,33 @@ class AnnLinker(Pipe):
                         )
                         for ac in nms_candidates
                     ]
-                    idx_muti = self.llm_disambiguator.invoke_multi(
-                        mention=ent.text,
-                        label=ent.label_ or "",
-                        context=doc.text,
-                        candidates=llm_nms_candidates,
+                    # Cache key: mention + label. context (doc.text) and
+                    # candidates are intentionally excluded: context varies per
+                    # document and candidates are derived from the mention via
+                    # NMS, so mention+label captures the deterministic inputs.
+                    cache_key = "{}|{}".format(
+                        ent.text,
+                        ent.label_ or "",
                     )
-                    if idx_muti:
-                        for idx in idx_muti:
-                            if 1 <= idx <= len(nms_candidates):
-                                best_candidate = nms_candidates[idx - 1]
-                                best_candidate.similarity = 1.0
-                                alias_candidates.append(best_candidate)
+                    cached_aliases = self.llm_cache.get(cache_key)
+                    if cached_aliases is not None:
+                        alias_candidates.extend(cached_aliases)
+                    else:
+                        idx_muti = self.llm_disambiguator.invoke_multi(
+                            mention=ent.text,
+                            label=ent.label_ or "",
+                            context=doc.text,
+                            candidates=llm_nms_candidates,
+                        )
+                        llm_picked = []
+                        if idx_muti:
+                            for idx in idx_muti:
+                                if 1 <= idx <= len(nms_candidates):
+                                    best_candidate = nms_candidates[idx - 1].model_copy()
+                                    best_candidate.similarity = 1.0
+                                    llm_picked.append(best_candidate)
+                        alias_candidates.extend(llm_picked)
+                        self.llm_cache.add(cache_key, llm_picked)
             ent._.alias_candidates = alias_candidates
             if len(alias_candidates) == 0:
                 continue
@@ -315,6 +336,8 @@ class AnnLinker(Pipe):
         self.llm_model = cfg.get("llm_model", "gpt-4o-mini")
         self.llm_api_key = cfg.get("llm_api_key")
         self.llm_context_chars = cfg.get("llm_context_chars", 2000)
+        self.llm_cache_size = cfg.get("llm_cache_size", 10000)
+        self.llm_cache = FrequencyCache(max_size=self.llm_cache_size)
         if self.llm_base_url:
             self.set_llm_disambiguator(self.llm_base_url, self.llm_model, self.llm_api_key)
         else:
@@ -339,6 +362,7 @@ class AnnLinker(Pipe):
             "llm_api_key": self.llm_api_key,
             "llm_model": self.llm_model,
             "llm_context_chars": self.llm_context_chars,
+            "llm_cache_size": self.llm_cache_size,
         }
         srsly.write_json(path / "cfg", cfg)
 
