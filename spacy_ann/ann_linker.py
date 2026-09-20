@@ -1,11 +1,10 @@
 # Copyright (c) Microsoft Corporation. All rights reserved.
 # Licensed under the MIT License.
 from pathlib import Path
-import re
 import gc
 from typing import Callable, List, Tuple, Dict
 import os.path as osp
-import numpy as np
+import itertools as it
 import srsly
 from spacy import util
 from spacy.pipeline import Pipe
@@ -190,8 +189,11 @@ class AnnLinker(Pipe):
 
             if kb_candidates:
                 # sort by similarity
-                kb_candidates = sorted(
-                    kb_candidates, key=lambda x: x.similarity, reverse=True)
+                kb_candidates = sorted(kb_candidates,
+                    key=lambda x: (x.label, x.similarity), reverse=True)
+                # dedup by entity, keep max item for each entity
+                kb_candidates = [list(v)[0] for k, v in it.groupby(
+                    kb_candidates, key=lambda x: x.entity)]
                 ent._.kb_candidates = kb_candidates
 
                 # Select best candidate as entity.
