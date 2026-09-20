@@ -5,7 +5,6 @@ import re
 import gc
 from typing import Callable, List, Tuple, Dict
 import os.path as osp
-import itertools as it
 import numpy as np
 import srsly
 from spacy import util
@@ -169,35 +168,27 @@ class AnnLinker(Pipe):
             if not hasattr(mentions_table, "_table") or ent.text not in mentions_table._table:
                 mentions_table.set(ent.text, alias_candidates[0].alias)
 
-            # return all kb entities of each candidate
-            alias_kb_lst = [
-                self.kb.get_alias_candidates(ac.alias) for ac in alias_candidates
-            ]
-            # flatten to list of candidates
-            kba_candidates = list(it.chain(*alias_kb_lst))
-            kba_alias_idx = list(
-                it.chain(*[[i] * len(items) for i, items in enumerate(alias_kb_lst)]))
-            candicate_similarity = [
-                ac.similarity for ac in alias_candidates
-            ]
+            # Build candidates, filtering by entity ID prefix when NER
+            # context label is available. Entity IDs use the format
+            # "prefix___name", e.g. "fragrance___橘子" and "ingredient___橘子".
+            # When ent.label_ is set, skip candidates whose prefix doesn't
+            # match; entities without "___" are always kept.
+            ent_label_lower = (ent.label_ or '').lower()
 
             kb_candidates = []
-            for cand, alias_idx in zip(kba_candidates, kba_alias_idx):
-                kb_candidates.append(
-                    KnowledgeBaseCandidate(
-                        entity=cand.entity_, label=self.ent_label_map.get(
-                            cand.entity_, ''),
-                        similarity=candicate_similarity[alias_idx]
-                    )
-                )
+            for ac in alias_candidates:
+                for kb_cand in self.kb.get_alias_candidates(ac.alias):
+                    kb_cand_label = self.ent_label_map.get(kb_cand.entity_, '')
+                    if ent_label_lower and kb_cand_label \
+                            and kb_cand_label.lower() != ent_label_lower:
+                        continue
+                    kb_candidates.append(KnowledgeBaseCandidate(
+                        entity=kb_cand.entity_,
+                        label=self.ent_label_map.get(kb_cand.entity_, ''),
+                        similarity=ac.similarity,
+                    ))
 
             if kb_candidates:
-                # dedup by entity, keep max item for each entity
-                kb_candidates = sorted(kb_candidates, key=lambda x: (
-                    x.label, x.similarity), reverse=True)
-                kb_candidates = [list(v)[0] for k, v in it.groupby(
-                    kb_candidates, key=lambda x: x.entity)]
-
                 # sort by similarity
                 kb_candidates = sorted(
                     kb_candidates, key=lambda x: x.similarity, reverse=True)
