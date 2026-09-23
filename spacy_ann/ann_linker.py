@@ -133,7 +133,15 @@ class AnnLinker(Pipe):
         self.require_cg()
 
         mentions = get_spans(doc)
-        mention_strings = [get_span_text(e) for e in mentions]
+        # when llm is not enabled, we can use the normalized span text from get_span_text() to generate candidates
+        if not self.llm_base_url:
+            mention_strings = [get_span_text(e) for e in mentions]
+        else:
+            # When LLM disambiguation is enabled, we need to pass original text
+            # (ent.text) to the CandidateGenerator so that it can provide the
+            # LLM with context for disambiguation.
+            mention_strings = [e.text for e in mentions]
+            self.cg.k = 7  # increase k to provide more candidates for LLM disambiguation
 
         batch_candidates = self.cg(mention_strings)
 
