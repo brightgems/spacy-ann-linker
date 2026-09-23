@@ -299,7 +299,7 @@ def test_llm_no_retry_on_404():
 
 _OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
 _OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "VP5*zL1")
-_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "ornith-1.5:9b")
+_OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.8-2b-distill:latest")
 
 _skip_no_llm = pytest.mark.skipif(
     not _OLLAMA_BASE_URL,
@@ -314,7 +314,7 @@ _skip_no_llm = pytest.mark.skipif(
     ("被誉为“木中黄金”的珍贵乌木：天然木质香调，沉稳大气", ['乌木']),
     ("淡淡的乌木玫瑰香：温暖舒适，适合秋冬使用", ['乌木玫瑰香']),
     ("淡淡的乌木檀香：天然木质香调，沉稳大气", ['乌木檀香']),
-    ("玉龙茶香: 伪体香感拉满", ["茶香", "龙井茶香"]),
+    ("玉龙茶香: 伪体香感拉满", ["玉龙茶香"]),
     ("玫瑰的花香: 伪体香感拉满", ["玫瑰花香"]),
     ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"]),
     ("淡淡的青柠和橘子的混合香，伪体香感拉满", ['青柠香', '柑橘香']),

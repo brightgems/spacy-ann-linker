@@ -141,7 +141,7 @@ class AnnLinker(Pipe):
             # (ent.text) to the CandidateGenerator so that it can provide the
             # LLM with context for disambiguation.
             mention_strings = [e.text for e in mentions]
-            self.cg.k = 7  # increase k to provide more candidates for LLM disambiguation
+            self.cg.k = 6  # increase k to provide more candidates for LLM disambiguation
 
         batch_candidates = self.cg(mention_strings)
 
@@ -154,9 +154,11 @@ class AnnLinker(Pipe):
                 if self.llm_disambiguator is not None:
                     llm_nms_candidates = [
                         KnowledgeBaseCandidate(
-                            entity=ac.alias, label="", similarity=ac.similarity
+                            entity=ac.alias, label=ent.label_, similarity=ac.similarity
                         )
                         for ac in nms_candidates
+                        if not self.ent_label_map or any([kb_cand for kb_cand in self.kb.get_alias_candidates(ac.alias)
+                                if self.ent_label_map.get(kb_cand.entity_, '') == ent.label_.lower()])
                     ]
                     # Cache key: mention + label. context (doc.text) and
                     # candidates are intentionally excluded: context varies per
@@ -207,6 +209,7 @@ class AnnLinker(Pipe):
             for ac in alias_candidates:
                 for kb_cand in self.kb.get_alias_candidates(ac.alias):
                     kb_cand_label = self.ent_label_map.get(kb_cand.entity_, '')
+                    # Exclude entities whose label doesn't match the NER label, if available.
                     if ent_label_lower and kb_cand_label \
                             and kb_cand_label.lower() != ent_label_lower:
                         continue

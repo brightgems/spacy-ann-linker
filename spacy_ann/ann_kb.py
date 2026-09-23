@@ -211,6 +211,20 @@ class AnnKnowledgeBase(InMemoryLookupKB):
                 f"ann_index not initialized. Have you run `cg.train` yet?")
 
     def get_alias_candidates(self, mention_texts: List[str]):
+        """
+        Given a list of mention texts, return for each mention a list of
+        AliasCandidate objects representing the nearest alias vectors in the
+        ANN index along with a similarity score in [0, 1].
+
+        Notes:
+        - This function requires the ANN index to be initialized; otherwise
+            require_ann_index() will raise a ValueError.
+        - Mentions that exactly match a known short alias are returned with
+            a single AliasCandidate of similarity 1.0 immediately.
+        - The ANN index lookup is robust to zero (empty) vectors via
+            _nmslib_knn_with_zero_vectors which handles such cases.
+        """
+        
         self.require_ann_index()
 
         tfidfs = self.vectorizer.transform(mention_texts)

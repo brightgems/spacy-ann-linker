@@ -122,7 +122,7 @@ class LLMDisambiguator:
         if len(ctx) > self.context_chars:
             ctx = ctx[: self.context_chars]
         lines = [
-            f"{i}. {c.entity} ({c.label})" for i, c in enumerate(candidates, start=1)
+            f"{i}. {c.entity}" for i, c in enumerate(candidates, start=1)
         ]
         cand_block = "\n".join(lines)
         label_part = f"({label})" if label else ""
