@@ -140,7 +140,7 @@ class AnnLinker(Pipe):
             # (ent.text) to the CandidateGenerator so that it can provide the
             # LLM with context for disambiguation.
             mention_strings = [e.text for e in mentions]
-            self.cg.k = 6  # increase k to provide more candidates for LLM disambiguation
+            self.cg.k = 7  # increase k to provide more candidates for LLM disambiguation
 
         batch_candidates = self.cg(mention_strings)
 
