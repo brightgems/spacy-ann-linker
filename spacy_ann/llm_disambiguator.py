@@ -37,7 +37,7 @@ _RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 class LLMDisambiguator:
-    """Disambiguate an entity mention by asking an LLM to pick a candidate.
+    """Disambiguate an alias mention by asking an LLM to pick a candidate.
 
     Given a mention, its surrounding context, and a ranked list of KB
     candidates, this builds a prompt that asks the model to reply with the
@@ -122,7 +122,7 @@ class LLMDisambiguator:
         if len(ctx) > self.context_chars:
             ctx = ctx[: self.context_chars]
         lines = [
-            f"{i}. {c.entity}" for i, c in enumerate(candidates, start=1)
+            f"{i}. {c.alias}" for i, c in enumerate(candidates, start=1)
         ]
         cand_block = "\n".join(lines)
         label_part = f"({label})" if label else ""
@@ -334,7 +334,7 @@ class LLMDisambiguator:
             result["index"] = indices[0]
             logger.debug(
                 "LLM parsed indices: %s -> %s",
-                indices, [candidates[i - 1].entity for i in indices])
+                indices, [candidates[i - 1].alias for i in indices])
         else:
             logger.debug("LLM content had no parseable index")
         return result

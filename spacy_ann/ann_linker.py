@@ -13,9 +13,8 @@ from spacy.language import Language
 from spacy.tokens import Doc, Span
 from spacy_ann.candidate_generator import CandidateGenerator
 from spacy_ann.llm_disambiguator import LLMDisambiguator
-from spacy_ann.types import KnowledgeBaseCandidate
+from spacy_ann.types import KnowledgeBaseCandidate, AliasCandidate
 from spacy_ann.util import get_spans, get_span_text, FrequencyCache
-from .regex_matcher_pipe import RegexMatcherPipe
 
 
 # Run GPU/CPU memory cleanup every N documents (avoid overhead of every-doc gc)
@@ -153,8 +152,8 @@ class AnnLinker(Pipe):
                 # find alias use llm
                 if self.llm_disambiguator is not None:
                     llm_nms_candidates = [
-                        KnowledgeBaseCandidate(
-                            entity=ac.alias, label=ent.label_, similarity=ac.similarity
+                        AliasCandidate(
+                            alias=ac.alias, similarity=ac.similarity
                         )
                         for ac in nms_candidates
                         if not self.ent_label_map or any([kb_cand for kb_cand in self.kb.get_alias_candidates(ac.alias)
@@ -181,8 +180,8 @@ class AnnLinker(Pipe):
                         llm_picked = []
                         if idx_muti:
                             for idx in idx_muti:
-                                if 1 <= idx <= len(nms_candidates):
-                                    best_candidate = nms_candidates[idx - 1].model_copy()
+                                if 1 <= idx <= len(llm_nms_candidates):
+                                    best_candidate = llm_nms_candidates[idx - 1].model_copy()
                                     best_candidate.similarity = 1.0
                                     llm_picked.append(best_candidate)
                         alias_candidates.extend(llm_picked)
