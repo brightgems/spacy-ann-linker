@@ -133,12 +133,12 @@ def test_llm_config_disk_roundtrip(tmp_path):
 def test_llm_invoke_multi_parses_multiple_indices():
     """invoke_multi must parse a comma-separated reply into a deduped,
     range-checked list of 1-based indices, and populate detail['indices']."""
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
     cands = [
-        KnowledgeBaseCandidate(entity="栀子花", label="SCENT", similarity=1.0),
-        KnowledgeBaseCandidate(entity="白麝香", label="SCENT", similarity=0.9),
-        KnowledgeBaseCandidate(entity="檀香", label="SCENT", similarity=0.8),
+        AliasCandidate(alias="栀子花", similarity=1.0),
+        AliasCandidate(alias="白麝香", similarity=0.9),
+        AliasCandidate(alias="檀香", similarity=0.8),
     ]
     disambiguator = LLMDisambiguator(
         base_url="https://api.example.com/v1",
@@ -169,9 +169,9 @@ def test_llm_invoke_multi_parses_multiple_indices():
 def test_llm_prompt_asks_for_multiple_indices():
     """build_prompt must always instruct the model to return one or more
     comma-separated indices (multi-select is the default behavior)."""
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
-    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    cands = [AliasCandidate(alias="e1", similarity=1.0)]
     d = LLMDisambiguator(base_url="https://x/v1")
     prompt = d.build_prompt("m", "L", "ctx", cands)
     assert "多个编号" in prompt
@@ -217,9 +217,9 @@ def test_llm_retry_on_timeout_then_success():
     """A Timeout on the first attempt must be retried and succeed on the
     second attempt, with backoff sleep between attempts."""
     import requests as _requests
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
-    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    cands = [AliasCandidate(alias="e1", similarity=1.0)]
     disambiguator = LLMDisambiguator(
         base_url="https://x/v1", model="m", max_retries=2, retry_backoff=0.01,
     )
@@ -236,9 +236,9 @@ def test_llm_retry_on_timeout_then_success():
 def test_llm_retry_on_503_then_success():
     """A retryable 503 on the first attempt must be retried and succeed on
     the second attempt."""
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
-    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    cands = [AliasCandidate(alias="e1", similarity=1.0)]
     disambiguator = LLMDisambiguator(
         base_url="https://x/v1", model="m", max_retries=2, retry_backoff=0.01,
     )
@@ -256,9 +256,9 @@ def test_llm_retry_exhausted_returns_none():
     """When all attempts time out, invoke_with_detail must return index=None
     with an error set, and post must be called max_retries+1 times."""
     import requests as _requests
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
-    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    cands = [AliasCandidate(alias="e1", similarity=1.0)]
     disambiguator = LLMDisambiguator(
         base_url="https://x/v1", model="m", max_retries=1, retry_backoff=0.01,
     )
@@ -274,9 +274,9 @@ def test_llm_retry_exhausted_returns_none():
 def test_llm_no_retry_on_404():
     """A non-retryable 404 must not be retried; post is called once and an
     error is recorded."""
-    from spacy_ann.types import KnowledgeBaseCandidate
+    from spacy_ann.types import AliasCandidate
 
-    cands = [KnowledgeBaseCandidate(entity="e1", label="L", similarity=1.0)]
+    cands = [AliasCandidate(alias="e1", similarity=1.0)]
     disambiguator = LLMDisambiguator(
         base_url="https://x/v1", model="m", max_retries=3, retry_backoff=0.01,
     )
@@ -319,6 +319,7 @@ _skip_no_llm = pytest.mark.skipif(
     ("桂花与木香: 伪体香感拉满", ["桂花香", "木香"]),
     ("淡淡的青柠和橘子的混合香，伪体香感拉满", ['青柠香', '柑橘香']),
     ("樱花香薰: 伪体香感拉满", ["樱花香", "香薰"]),
+    ("生姜精华精制而成,飘散雪山松木香", ["生姜", "松木香"]),
 ])
 def test_llm_scent_linking(scent_linker,text, links):
     """E2E: real LLM links individual scent mentions to KB entities.
@@ -345,6 +346,8 @@ def test_llm_scent_linking(scent_linker,text, links):
         {"label": "FRAGRANCE", "pattern": "玫瑰的花香"},
         {"label": "FRAGRANCE", "pattern": "桂花与木香"},
         {"label": "FRAGRANCE", "pattern": "樱花香薰"},
+        {"label": "INGREDIENT", "pattern": "生姜精华"},
+        {"label": "FRAGRANCE", "pattern": "雪山松木香"},
         {"label": "FRAGRANCE", "pattern": [
             {"TEXT": "淡淡"},
             {"OP": "*"},          # 中间任意个 Token（0 个或多个）
